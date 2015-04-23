@@ -17,7 +17,21 @@ sealed trait Leaf extends Expr with Positional
 case class NumberLiteral(value : Int) extends Leaf
 case class Name(text : String) extends Leaf
 case class StringLiteral(literal : String) extends  Leaf
-case class Operator(text : String) extends Leaf
+case class Operator(opStr : String) extends Leaf{
+  val (priority, leftAssoc) = opStr match{
+    case "dummy" => (Int.MinValue/100, true)
+
+    case "=" => (8,false)
+    case "==" =>(9, true)
+    case ">" => (9, true)
+    case "<" => (9, true)
+    case "+" => (10,true)
+    case "-" => (10,true)
+    case "*" => (11,true)
+    case "/" => (11,true)
+    case "%" => (11,true)
+  }
+}
 
 case class NegativeExpr(primary : Expr) extends Expr
 case class BinaryExpr(left : Expr , op : Operator, right : Expr) extends Expr
@@ -56,9 +70,21 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
 
   def expr        : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
-    case a ~ Nil => a
-    case a ~ ((b ~ c) :: rest) => BinaryExpr(a,b,exprLoop(c, rest))
+    case a ~ lst => {
+      val ary = {
+        val ret = new Array[(Operator,Expr)](lst.length + 1)
+        var i = 0
+        ret(i) = (Operator("dummy"),a) ; i = i + 1
+        for((op ~ fc) <- lst) {
+          ret(i) = (op,fc)
+          i = i + 1
+        }
+        ret
+      }
+      makeBinaryExpr(ary, 0 until ary.length)
+    }
   }
+
   def primary     : Parser[Expr] = "(" ~> expr <~ ")" | number | identifier | string
   def factor      : Parser[Expr] = ("-" ~> primary) ^^ {case p => NegativeExpr(p)} | primary
   def statement   : Parser[Stmt] = ifStatement | whileStatement | simple
@@ -77,12 +103,32 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
 
   /**
-   * expr 用補助関数
-   * 演算子の優先順位がまだない(なんでも右から右結合になる)
-   * @return
+   * 演算子優先度の低いものからくっつけていく
+   * 結合性は考えていない
+   * @param ary (dummyOp, expr1) :: (op1, expr2) :: (op2, expr3) ::  ... :: Nil
    */
-  def exprLoop(operand1 : Expr, rest : List[BasicParser.~[Operator,Expr]]) : Expr = (operand1, rest) match {
-    case (_, Nil) => operand1
-    case (_, (operator ~ operand2) :: others) => BinaryExpr(operand1,operator,exprLoop(operand2,others))
+  def makeBinaryExpr(ary : Array[(Operator,Expr)], range:Range) : Expr = {
+    assert(range.step == 1)
+    assert(range.size >= 1)
+
+    if(range.size == 1){
+      ary(range.head)._2
+    }else {
+      var minPr = Int.MaxValue / 100
+      var minPrIndex = -1
+      for (i <- range.head + 1 to range.last) {
+        val op = ary(i)._1
+        if (minPr > op.priority) {
+          minPr = op.priority
+          minPrIndex = i
+        }
+      }
+      BinaryExpr(
+        makeBinaryExpr(ary, range.head until minPrIndex),
+        ary(minPrIndex)._1,
+        makeBinaryExpr(ary, minPrIndex to range.last)
+      )
+    }
   }
+
 }
