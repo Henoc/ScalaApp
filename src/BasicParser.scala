@@ -44,6 +44,12 @@ case class WhileStmt(condition : Expr, whileBlock : Block) extends Stmt
  * oneLine が1行分に相当
  */
 object BasicParser extends JavaTokenParsers with RegexParsers {
+
+  /**
+   * 改行を無視しない
+   */
+  override val whiteSpace = """( |\t|\x0B|\f|\r)+""".r
+
   def op : Parser[Operator] =          positioned( """\+|-|\*|\/|=|==|>|<|%""".r ^^ { case e => Operator(e)} )
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
   def identifier : Parser[Name] =      positioned( ident                         ^^ { case e => Name(e)} )
@@ -60,7 +66,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
     case cond ~ thenBlk ~ elseBlkOpt => IfStmt(cond,thenBlk,elseBlkOpt)
   }
   def whileStatement : Parser[Stmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
-  def block       : Parser[Block] = ("{" ~> repsep(opt(statement),(";" | "\n")) <~ "}") ^^
+  def block       : Parser[Block] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
     {case lst => BlockStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
   def simple      : Parser[Expr] = expr
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {
