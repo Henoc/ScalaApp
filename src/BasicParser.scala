@@ -103,8 +103,8 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
 
   /**
-   * 演算子優先度の低いものからくっつけていく
-   * 結合性は考えていない
+   * 演算子優先度の低いものから節としてまとめる
+   * 左結合性、同列順位のものは右のものを先に節にする
    * @param ary (dummyOp, expr1) :: (op1, expr2) :: (op2, expr3) ::  ... :: Nil
    */
   def makeBinaryExpr(ary : Array[(Operator,Expr)], range:Range) : Expr = {
@@ -118,7 +118,8 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
       var minPrIndex = -1
       for (i <- range.head + 1 to range.last) {
         val op = ary(i)._1
-        if (minPr > op.priority) {
+        // 左結合性の演算子は、右にあるものを先に節にする
+        if (minPr > op.priority  || (minPr == op.priority && op.leftAssoc)) {
           minPr = op.priority
           minPrIndex = i
         }
