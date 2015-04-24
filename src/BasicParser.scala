@@ -43,15 +43,17 @@ case class BlockStmt(stmts : List[Stmt]) extends Stmt
 case class NullStmt() extends Stmt
 case class IfStmt(condition : Expr, thenBlock : BlockStmt, elseBlock : Option[BlockStmt]) extends Stmt
 case class WhileStmt(condition : Expr, whileBlock : BlockStmt) extends Stmt
+case class LetStmt(named : Name, expr : Expr) extends Stmt
 
 /**
  *
  * expr := factor { op factor }
  * primary := "(" expr ")" | number | identifier | string
  * factor := "-" primary | primary
- * statement := ifStatement | whileStatement | simple
+ * statement := ifStatement | whileStatement | letStatement | simple
  * ifStatement := "if" expr block [ "else block ]
  * whileStatement := "while" expr block
+ * letStatement := "let" identifier "=" expr
  * block := "{" [statement] { (";" | "\n") [statement] } "}"
  * simple := expr
  * oneLine := [statement] (";" | "\n")
@@ -91,13 +93,16 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def primary     : Parser[Expr] = "(" ~> expr <~ ")" | number | identifier | string
   def factor      : Parser[Expr] = ("-" ~> primary) ^^ {case p => NegativeExpr(p)} | primary
-  def statement   : Parser[Stmt] = ifStatement | whileStatement | simple
+  def statement   : Parser[Stmt] = ifStatement | whileStatement | letStatement | simple
   def ifStatement : Parser[IfStmt] = "if" ~> expr ~ block ~ opt("else" ~> block) ^^ {
     case cond ~ thenBlk ~ elseBlkOpt => IfStmt(cond,thenBlk,elseBlkOpt)
   }
   def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
   def block       : Parser[BlockStmt] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
     {case lst => BlockStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
+  def letStatement : Parser[LetStmt] = "let" ~> identifier ~ ("=" ~> expr) ^^ {
+      case named ~ rightExpr => LetStmt(named, rightExpr)
+    }
   def simple      : Parser[Expr] = expr
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {
     case None => NullStmt()

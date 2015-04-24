@@ -89,6 +89,10 @@ object Evaluator {
         case Nil => env
         case stmt :: rest => eval(BlockStmt(rest), eval(stmt,env))
       }
+      case LetStmt(Name(text), expr) => {
+        val rightEnv = eval(expr, env)
+        Environment(rightEnv.nameBind + (text -> rightEnv.ret), rightEnv.ret)
+      }
     }
   }
 
