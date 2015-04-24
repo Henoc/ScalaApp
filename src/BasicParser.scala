@@ -9,19 +9,21 @@ import scala.util.parsing.combinator._
  * positioned() で囲めば (token).pos.line, (token).pos.column で位置情報が出る
  *
  * トレイト
- * Block(複文) > Stmt(単文) > Expr(式) > Leaf(オペレータとオペランド)
+ * Stmt(単文) > Expr(式) > Leaf(オペランド) > Literal
  */
 
 sealed trait Expr extends Stmt
 sealed trait Leaf extends Expr with Positional
-case class NumberLiteral(value : Int) extends Leaf
+sealed trait Literal extends Leaf
+case class UnitLiteral() extends Literal
+case class NumberLiteral(value : Int) extends Literal
 case class Name(text : String) extends Leaf
-case class StringLiteral(literal : String) extends  Leaf
-case class Operator(opStr : String) extends Leaf{
+case class StringLiteral(literal : String) extends  Literal
+case class Operator(opStr : String) extends Expr with Positional{
   val (priority, leftAssoc) = opStr match{
     case "dummy" => (Int.MinValue/100, true)
 
-    case "=" => (8,false)
+    case "<-" => (8,false)
     case "==" =>(9, true)
     case ">" => (9, true)
     case "<" => (9, true)
@@ -36,12 +38,11 @@ case class Operator(opStr : String) extends Leaf{
 case class NegativeExpr(primary : Expr) extends Expr
 case class BinaryExpr(left : Expr , op : Operator, right : Expr) extends Expr
 
-sealed trait Block
-sealed trait Stmt extends Block
-case class BlockStmt(stmts : List[Stmt]) extends Block
+sealed trait Stmt
+case class BlockStmt(stmts : List[Stmt]) extends Stmt
 case class NullStmt() extends Stmt
-case class IfStmt(condition : Expr, thenBlock : Block, elseBlock : Option[Block]) extends Stmt
-case class WhileStmt(condition : Expr, whileBlock : Block) extends Stmt
+case class IfStmt(condition : Expr, thenBlock : BlockStmt, elseBlock : Option[BlockStmt]) extends Stmt
+case class WhileStmt(condition : Expr, whileBlock : BlockStmt) extends Stmt
 
 /**
  *
@@ -56,6 +57,8 @@ case class WhileStmt(condition : Expr, whileBlock : Block) extends Stmt
  * oneLine := [statement] (";" | "\n")
  *
  * oneLine が1行分に相当
+ *
+ * TODO: 代入文の導入
  */
 object BasicParser extends JavaTokenParsers with RegexParsers {
 
@@ -64,13 +67,14 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
    */
   override val whiteSpace = """( |\t|\x0B|\f|\r)+""".r
 
-  def op : Parser[Operator] =          positioned( """\+|-|\*|\/|=|==|>|<|%""".r ^^ { case e => Operator(e)} )
+  def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|>|<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
   def identifier : Parser[Name] =      positioned( ident                         ^^ { case e => Name(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
 
   def expr        : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
     case a ~ lst => {
+      // 解析結果の型が扱いづらいので配列(Array[(Operator,Expr)])に直す
       val ary = {
         val ret = new Array[(Operator,Expr)](lst.length + 1)
         var i = 0
@@ -88,11 +92,11 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def primary     : Parser[Expr] = "(" ~> expr <~ ")" | number | identifier | string
   def factor      : Parser[Expr] = ("-" ~> primary) ^^ {case p => NegativeExpr(p)} | primary
   def statement   : Parser[Stmt] = ifStatement | whileStatement | simple
-  def ifStatement : Parser[Stmt] = "if" ~> expr ~ block ~ opt("else" ~> block) ^^ {
+  def ifStatement : Parser[IfStmt] = "if" ~> expr ~ block ~ opt("else" ~> block) ^^ {
     case cond ~ thenBlk ~ elseBlkOpt => IfStmt(cond,thenBlk,elseBlkOpt)
   }
-  def whileStatement : Parser[Stmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
-  def block       : Parser[Block] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
+  def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
+  def block       : Parser[BlockStmt] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
     {case lst => BlockStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
   def simple      : Parser[Expr] = expr
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {

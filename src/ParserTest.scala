@@ -17,8 +17,16 @@ object ParserTest {
     println(str)
     println()
     println("output: ")
-    println(calc(str.toString()))
+    val ast = parse(str.toString())
+    println(ast)
+    println("evaluate: ")
+    println(evalList(ast.get, Environment()))
   }
 
-  def calc(expression : String) = BasicParser.parseAll(BasicParser.program, expression)
+  def parse(expression : String) = BasicParser.parseAll(BasicParser.program, expression)
+
+  def evalList(ast : List[Stmt] , env : Environment) : Literal = ast match {
+    case Nil => env.ret
+    case hd :: tl => evalList(tl, Evaluator.eval(hd,env))
+  }
 }
