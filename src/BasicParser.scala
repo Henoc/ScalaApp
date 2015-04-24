@@ -10,9 +10,11 @@ import scala.util.parsing.combinator._
  *
  * トレイト
  * Stmt(単文) > Expr(式) > Leaf(オペランド) > Literal
+ * Codes = Expr | BlockStmt
  */
 
-sealed trait Expr extends Stmt
+sealed trait Cluster
+sealed trait Expr extends Stmt with Cluster
 sealed trait Leaf extends Expr with Positional
 sealed trait Literal extends Leaf
 case class UnitLiteral() extends Literal
@@ -39,28 +41,28 @@ case class NegativeExpr(primary : Expr) extends Expr
 case class BinaryExpr(left : Expr , op : Operator, right : Expr) extends Expr
 
 sealed trait Stmt
-case class BlockStmt(stmts : List[Stmt]) extends Stmt
+case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case class NullStmt() extends Stmt
 case class IfStmt(condition : Expr, thenBlock : BlockStmt, elseBlock : Option[BlockStmt]) extends Stmt
 case class WhileStmt(condition : Expr, whileBlock : BlockStmt) extends Stmt
-case class LetStmt(named : Name, expr : Expr) extends Stmt
+case class LetStmt(named : Name, codes : Cluster) extends Stmt
 
 /**
  *
  * expr := factor { op factor }
  * primary := "(" expr ")" | number | identifier | string
  * factor := "-" primary | primary
+ * cluster := expr | block
  * statement := ifStatement | whileStatement | letStatement | simple
  * ifStatement := "if" expr block [ "else block ]
  * whileStatement := "while" expr block
- * letStatement := "let" identifier "=" expr
+ * letStatement := "let" identifier "=" cluster
  * block := "{" [statement] { (";" | "\n") [statement] } "}"
  * simple := expr
  * oneLine := [statement] (";" | "\n")
  *
  * oneLine が1行分に相当
  *
- * TODO: 代入文の導入
  */
 object BasicParser extends JavaTokenParsers with RegexParsers {
 
@@ -93,6 +95,9 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def primary     : Parser[Expr] = "(" ~> expr <~ ")" | number | identifier | string
   def factor      : Parser[Expr] = ("-" ~> primary) ^^ {case p => NegativeExpr(p)} | primary
+  
+  def cluster : Parser[Cluster] = expr | block
+  
   def statement   : Parser[Stmt] = ifStatement | whileStatement | letStatement | simple
   def ifStatement : Parser[IfStmt] = "if" ~> expr ~ block ~ opt("else" ~> block) ^^ {
     case cond ~ thenBlk ~ elseBlkOpt => IfStmt(cond,thenBlk,elseBlkOpt)
@@ -100,8 +105,8 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
   def block       : Parser[BlockStmt] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
     {case lst => BlockStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
-  def letStatement : Parser[LetStmt] = "let" ~> identifier ~ ("=" ~> expr) ^^ {
-      case named ~ rightExpr => LetStmt(named, rightExpr)
+  def letStatement : Parser[LetStmt] = "let" ~> identifier ~ ("=" ~> cluster) ^^ {
+      case named ~ right => LetStmt(named, right)
     }
   def simple      : Parser[Expr] = expr
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {
