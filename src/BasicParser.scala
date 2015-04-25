@@ -28,7 +28,7 @@ case class Binder(text : String) extends Operand
 case class UnitLiteral() extends Bindable
 case class NumberLiteral(value : Int) extends Bindable
 case class StringLiteral(literal : String) extends  Bindable
-case class Function(params : List[Binder], outerEnv : Environment, body : Cluster) extends Bindable
+case class Function(params : List[Binder], var outerEnv : Environment, body : Cluster) extends Bindable
 
 case class Operator(opStr : String) extends Expr with Positional{
   val (priority, leftAssoc) = opStr match{
@@ -90,7 +90,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|>|<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
-  def identifier : Parser[Binder] =      positioned( ident                         ^^ { case e => Binder(e)} )
+  def identifier : Parser[Binder] =    positioned( ident                         ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
 
   def expr        : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {

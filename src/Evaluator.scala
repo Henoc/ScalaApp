@@ -8,8 +8,8 @@
  * @param nameBind 変数対応表
  * @param ret 返り値
  */
-case class Environment (nameBind : Map[String,Bindable] = Map.empty
-  ,ret : Bindable = UnitLiteral())
+case class Environment (nameBind : Map[String,Bindable] = Map.empty,
+  outerOpt : Option[Environment] = None,ret : Bindable = UnitLiteral())
 
 class StoneEvalException(message : String = null) extends Exception(message){
   def this(mes : String, line : Int, column : Int) = {
@@ -19,28 +19,36 @@ class StoneEvalException(message : String = null) extends Exception(message){
 
 object Evaluator {
   def eval(ast : Evaluable, env :Environment) : Environment = ast match {
-    case literal : Bindable => Environment(env.nameBind, literal)
+    case literal : Bindable => env.copy(ret = literal)
     case leaf : Operand => leaf match {
-      case Binder(text) => Environment(env.nameBind,
-        env.nameBind.getOrElse(text,throw new StoneEvalException("未知の変数を検出しました",leaf.pos.line,leaf.pos.column)))
+      case Binder(text) => {
+        // 現在の名前空間に無ければ、outer環境も探しに行く
+        env.copy(ret = env.nameBind.get(text) match{
+          case Some(bindable) => bindable
+          case None => {
+            env.outerOpt match {
+              case Some(outer) => eval(Binder(text),outer).ret
+              case None => throw new StoneEvalException("未知の変数を検出しました",leaf.pos.line,leaf.pos.column)
+            }
+          }
+        })
+      }
       case _ => throw new StoneEvalException("???",leaf.pos.line, leaf.pos.column)
     }
     case expr : Expr => expr match {
       case BinaryExpr(left,op,right) => op match{
         case Operator("<-") => left match{
           // 変数に値を束縛し直す
-          case Binder(text) if env.nameBind.contains(text) => {
+          case Binder(text) => {
             val rightEnv = eval(right,env)
-            val nMap = rightEnv.nameBind.updated(text,rightEnv.ret)
-            Environment(nMap,rightEnv.ret)
+            binder(rightEnv,text,rightEnv.ret)
           }
-          case named @ Binder(text) => throw new StoneEvalException("未定義の変数には代入できません",named.pos.line, named.pos.column)
           case _ => throw new StoneEvalException("代入式の左辺が変数ではありません",op.pos.line, op.pos.column)
         }
         case Operator(opStr) => {
           val leftEnv = eval(left,env)
           val rightEnv = eval(right,leftEnv)
-          val retEnv = Environment(rightEnv.nameBind,_ : Bindable)
+          val retEnv = (b : Bindable) => env.copy(ret = b)
           (leftEnv.ret,rightEnv.ret) match {
             case (NumberLiteral(ln),NumberLiteral(rn)) => opStr match {
               case "+" => retEnv(NumberLiteral(ln + rn))
@@ -63,7 +71,7 @@ object Evaluator {
       case NegativeExpr(expr) => {
         val retEnv = eval(expr,env)
         retEnv.ret match {
-          case NumberLiteral(n) => Environment(retEnv.nameBind, NumberLiteral(- n))
+          case NumberLiteral(n) => env.copy(ret = NumberLiteral(- n))
           case _ => throw new StoneEvalException("無効な計算です",retEnv.ret.pos.line, retEnv.ret.pos.column)
         }
       }
@@ -75,13 +83,15 @@ object Evaluator {
           case function : Function if arguments.length == function.params.length => {
             // 引数を現在の環境で計算
             // 引数部分で副作用(代入)を起こさないでね
-            val paramArgsPairLst = for( (param,arg) <- function.params.zip(arguments) ) yield (param.text -> eval(arg, env).ret)
+            val paramNameBinds = Map.empty[String,Bindable] ++ function.params.map{case Binder(x) => x}.zip(arguments.map(eval(_,env).ret))
             // 関数本体計算用環境 = outer + (callerEnv上で計算した(パラメータ -> 引数)対応表(環境の差分))
-            val newEnv = Environment(function.outerEnv.nameBind ++ paramArgsPairLst, UnitLiteral())
+            val inner = Environment(paramNameBinds,Some(function.outerEnv),UnitLiteral())
             // 関数内の、計算実行後環境
-            val evaledEnv = eval(function.body,newEnv)
+            val evaledInner = eval(function.body,inner)
+            // 関数オブジェクトのouterEnvを評価後の外側環境に更新(可変メンバーの参照先を強引に変更)
+            function.outerEnv = evaledInner.outerOpt.get
             // callerEnvはそのままで、返り値は関数の計算結果
-            Environment(env.nameBind,evaledEnv.ret)
+            env.copy(ret = evaledInner.ret)
           }
           // 引数とパラメータの数が違うとき TODO: 部分適用
           case function : Function => throw new StoneEvalException("関数のパラメータ数と引数の数が一致しません",retEnv.ret.pos.line, retEnv.ret.pos.column)
@@ -106,22 +116,46 @@ object Evaluator {
         }
         varEnv
       }
-      case BlockStmt(stmts) => stmts match{
-        case Nil => env
-        case stmt :: rest => eval(BlockStmt(rest), eval(stmt,env))
+      case BlockStmt(stmts) => {
+        var innerEnv = Environment(Map.empty,Some(env),UnitLiteral())
+        for(stmt <- stmts){
+          innerEnv = innerEnv.copy(ret = UnitLiteral())
+          innerEnv = eval(stmt,innerEnv)
+        }
+        // ブロック内で外側環境に与えた変化をもらうため、innerEnvのouterを渡す
+        // 返り値はブロック文の最後の文の返り値
+        innerEnv.outerOpt.get.copy(ret = innerEnv.ret)
       }
       case LetStmt(Binder(text),paramsOpt, codes) => paramsOpt match {
         case None => {
           val rightEnv = eval(codes,env)
-          Environment(rightEnv.nameBind + (text -> rightEnv.ret), rightEnv.ret)
+          rightEnv.copy(nameBind = rightEnv.nameBind + (text -> rightEnv.ret))
         }
         case Some(params) => {
           // 関数の節を作成 定義時の環境(outer)を保存しておく
           val function = Function(params,env,codes)
-          Environment(env.nameBind + (text -> function), UnitLiteral())
+          env.copy(nameBind = env.nameBind + (text -> function), ret = UnitLiteral())
         }
       }
     }
+  }
+
+  /**
+   * 環境を再帰的に呼び出してtext変数名にbindableを束縛する
+   * 無ければ例外を出す
+   * @param env
+   * @param text
+   * @param bindable
+   * @return 更新された環境
+   */
+  def binder(env:Environment,text:String,bindable:Bindable):Environment = {
+    if(env.nameBind.contains(text)) {
+      env.copy(nameBind = env.nameBind.updated(text,bindable))
+    }else env.outerOpt match {
+      case None => throw new StoneEvalException("未定義の変数には代入できません",bindable.pos.line, bindable.pos.column)
+      case Some(outer) => env.copy(outerOpt = Some(binder(outer,text,bindable)))
+    }
+
   }
 
   def boolToNumber(b : Boolean) = if(b) 1 else 0
