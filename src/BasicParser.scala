@@ -9,18 +9,27 @@ import scala.util.parsing.combinator._
  * positioned() で囲めば (token).pos.line, (token).pos.column で位置情報が出る
  *
  * トレイト
- * Stmt(単文) > Expr(式) > Leaf(オペランド) > Literal
- * Codes = Expr | BlockStmt
+ * Evaluable > Stmt, Cluster
+ * Stmt(単文) > Expr(式) > Operand > Bindable
+ * Cluster = Expr | BlockStmt
+ *
+ * Clusterはパーサー類の異なる観点からの集合にすぎない、StmtはClusterを包含する
+ * Evaluableならeval()で実行可能
  */
 
-sealed trait Cluster
+sealed trait Evaluable
+sealed trait Cluster extends Evaluable
 sealed trait Expr extends Stmt with Cluster
-sealed trait Leaf extends Expr with Positional
-sealed trait Literal extends Leaf
-case class UnitLiteral() extends Literal
-case class NumberLiteral(value : Int) extends Literal
-case class Name(text : String) extends Leaf
-case class StringLiteral(literal : String) extends  Literal
+sealed trait Operand extends Expr with Positional
+sealed trait Bindable extends Operand
+
+case class Binder(text : String) extends Operand
+
+case class UnitLiteral() extends Bindable
+case class NumberLiteral(value : Int) extends Bindable
+case class StringLiteral(literal : String) extends  Bindable
+case class Function(params : List[Binder], outerEnv : Environment, body : Cluster) extends Bindable
+
 case class Operator(opStr : String) extends Expr with Positional{
   val (priority, leftAssoc) = opStr match{
     case "dummy" => (Int.MinValue/100, true)
@@ -39,27 +48,35 @@ case class Operator(opStr : String) extends Expr with Positional{
 
 case class NegativeExpr(primary : Expr) extends Expr
 case class BinaryExpr(left : Expr , op : Operator, right : Expr) extends Expr
+case class PrimaryExpr(child : Expr, arguments : List[Expr]) extends Expr
 
-sealed trait Stmt
+sealed trait Stmt extends Evaluable
 case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case class NullStmt() extends Stmt
 case class IfStmt(condition : Expr, thenBlock : BlockStmt, elseBlock : Option[BlockStmt]) extends Stmt
 case class WhileStmt(condition : Expr, whileBlock : BlockStmt) extends Stmt
-case class LetStmt(named : Name, codes : Cluster) extends Stmt
+case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluster) extends Stmt
 
 /**
  *
  * expr := factor { op factor }
- * primary := "(" expr ")" | number | identifier | string
+ * primary := "(" expr ")" | number | expandable | string
+ * expandable := identifier [postfix]
  * factor := "-" primary | primary
  * cluster := expr | block
  * statement := ifStatement | whileStatement | letStatement | simple
  * ifStatement := "if" expr block [ "else block ]
  * whileStatement := "while" expr block
- * letStatement := "let" identifier "=" cluster
+ * letStatement := "let" identifier [params] "=" cluster
  * block := "{" [statement] { (";" | "\n") [statement] } "}"
  * simple := expr
  * oneLine := [statement] (";" | "\n")
+ *
+ * 関数関連
+ * param := identifier
+ * params := rep1(param)
+ * postfix := rep1(expr)
+ *
  *
  * oneLine が1行分に相当
  *
@@ -73,7 +90,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|>|<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
-  def identifier : Parser[Name] =      positioned( ident                         ^^ { case e => Name(e)} )
+  def identifier : Parser[Binder] =      positioned( ident                         ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
 
   def expr        : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
@@ -92,8 +109,17 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
       makeBinaryExpr(ary, 0 until ary.length)
     }
   }
+  
+  def primary     : Parser[Expr] =  "(" ~> expr <~ ")" | number | expandable | string
 
-  def primary     : Parser[Expr] = "(" ~> expr <~ ")" | number | identifier | string
+  /**
+   * 変数名または、変数名に引数がついたもの
+   * @return 変数名(Binder) or 関数実行節(PrimaryExpr)
+   */
+  def expandable : Parser[Expr] = identifier ~ opt(postfix) ^^ {
+    case id ~ None => id
+    case id ~ Some(arguments) => PrimaryExpr(id,arguments)
+  }
   def factor      : Parser[Expr] = ("-" ~> primary) ^^ {case p => NegativeExpr(p)} | primary
   
   def cluster : Parser[Cluster] = expr | block
@@ -105,8 +131,8 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
   def block       : Parser[BlockStmt] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
     {case lst => BlockStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
-  def letStatement : Parser[LetStmt] = "let" ~> identifier ~ ("=" ~> cluster) ^^ {
-      case named ~ right => LetStmt(named, right)
+  def letStatement : Parser[LetStmt] = "let" ~> identifier ~ opt(params) ~ ("=" ~> cluster) ^^ {
+      case named ~ paramsOpt ~ right => LetStmt (named, paramsOpt, right)
     }
   def simple      : Parser[Expr] = expr
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {
@@ -114,6 +140,11 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
     case Some(s) => s
   } ) <~ (";" | "\n")
   def program : Parser[List[Stmt]] = rep(oneLine)
+
+  //関数関連
+  def param = identifier
+  def params = rep1(param)
+  def postfix = rep1(expr)
 
 
   /**

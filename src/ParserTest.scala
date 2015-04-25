@@ -25,7 +25,7 @@ object ParserTest {
 
   def parse(expression : String) = BasicParser.parseAll(BasicParser.program, expression)
 
-  def evalList(ast : List[Stmt] , env : Environment) : Literal = ast match {
+  def evalList(ast : List[Stmt] , env : Environment) : Bindable = ast match {
     case Nil => env.ret
     case hd :: tl => evalList(tl, Evaluator.eval(hd,env))
   }
