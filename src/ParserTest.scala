@@ -7,7 +7,7 @@ import scala.util.control.Breaks.{breakable, break}
 object ParserTest {
 
   val scan = new Scanner(System.in)
-  var env = Environment()
+  var env = new Environment()
   val str = new StringBuilder
 
   def main(args: Array[String]) {
@@ -20,6 +20,7 @@ object ParserTest {
             try{
               val stmtLst = parse(str.toString()).get
               for(stmt <- stmtLst) env = Evaluator.eval(stmt,env)
+              println("parsed: " + stmtLst)
               println("ans: " + env.ret)
             }
             catch{

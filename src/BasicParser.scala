@@ -28,7 +28,13 @@ case class Binder(text : String) extends Operand
 case class UnitLiteral() extends Bindable
 case class NumberLiteral(value : Int) extends Bindable
 case class StringLiteral(literal : String) extends  Bindable
-case class Function(params : List[Binder], var outerEnv : Environment, body : Cluster) extends Bindable
+case class Function(params : List[Binder], var outerEnv : Environment, body : Cluster) extends Bindable {
+  /**
+   * 無限再帰防止用に、outerEnvを非表示
+   * @return
+   */
+  override def toString() = "Function(" + params.toString() + ", *outerEnv*, " + body.toString + ")"
+}
 
 case class Operator(opStr : String) extends Expr with Positional{
   val (priority, leftAssoc) = opStr match{
@@ -61,7 +67,7 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
  *
  * expr := factor { op factor }
  * primary := "(" expr ")" | number | expandable | string
- * expandable := identifier [postfix]
+ * expandable := identifier rep(postfix)
  * factor := "-" primary | primary
  * cluster := expr | block
  * statement := ifStatement | whileStatement | letStatement | simple
@@ -75,10 +81,11 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
  * 関数関連
  * param := identifier
  * params := rep1(param)
- * postfix := rep1(expr)
+ * postfix := "(" expr ")" | number | identifier | string
  *
  *
  * oneLine が1行分に相当
+ * postfix := expr としないことで n - 1 = (n) (-1) = identifier postfix になる問題を修正
  *
  */
 object BasicParser extends JavaTokenParsers with RegexParsers {
@@ -116,9 +123,9 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
    * 変数名または、変数名に引数がついたもの
    * @return 変数名(Binder) or 関数実行節(PrimaryExpr)
    */
-  def expandable : Parser[Expr] = identifier ~ opt(postfix) ^^ {
-    case id ~ None => id
-    case id ~ Some(arguments) => PrimaryExpr(id,arguments)
+  def expandable : Parser[Expr] = identifier ~ rep(postfix) ^^ {
+    case id ~ Nil => id
+    case id ~ args => PrimaryExpr(id,args)
   }
   def factor      : Parser[Expr] = ("-" ~> primary) ^^ {case p => NegativeExpr(p)} | primary
   
@@ -144,7 +151,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   //関数関連
   def param = identifier
   def params = rep1(param)
-  def postfix = rep1(expr)
+  def postfix = "(" ~> expr <~ ")" | number | identifier | string
 
 
   /**
