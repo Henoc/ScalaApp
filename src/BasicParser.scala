@@ -40,8 +40,9 @@ case class Operator(opStr : String) extends Expr with Positional{
   val (priority, leftAssoc) = opStr match{
     case "dummy" => (Int.MinValue/100, true)
 
-    case "<-" => (8,false)
+    case "<-" =>(8,false)
     case "==" =>(9, true)
+    case "!=" =>(9, true)
     case ">" => (9, true)
     case "<" => (9, true)
     case "+" => (10,true)

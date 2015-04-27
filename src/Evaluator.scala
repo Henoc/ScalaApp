@@ -77,6 +77,7 @@ object Evaluator {
               case "<" => retEnv(NumberLiteral(boolToNumber(ln < rn)))
               case ">" => retEnv(NumberLiteral(boolToNumber(ln > rn)))
               case "=="=> retEnv(NumberLiteral(boolToNumber(ln == rn)))
+              case "!="=> retEnv(NumberLiteral(boolToNumber(ln != rn)))
             }
             case (StringLiteral(ln),StringLiteral(rn)) => opStr match {
               case "+" => retEnv(StringLiteral(ln + rn))
@@ -123,7 +124,7 @@ object Evaluator {
         if(anyToBool(eval(condition, env))) eval(thenBlock, env) else {
           elseBlock match {
             case Some(e) => eval(e,env)
-            case None => env
+            case None => env.mutate(ret = UnitLiteral())
           }
         }
       }

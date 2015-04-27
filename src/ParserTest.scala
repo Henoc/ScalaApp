@@ -3,6 +3,24 @@ import scala.util.control.Breaks.{breakable, break}
 
 /**
  * Created by heno on 2015/04/23.
+ *
+ * 例 フィボナッチ数列
+ *
+let fib n = {
+  if n == 0 {
+    0
+  } else {
+    if n == 1 {
+      1
+    } else {
+      (fib (n - 1)) + (fib (n - 2))
+    }
+  }
+}
+fib 10
+ *
+ * ブロック文の仕様(最後の式以外の式の返り値はすべてUnitを入れた上で無視する)、
+ * if文の仕様(else文省略時に不成立ならUnitが返る)に注意
  */
 object ParserTest {
 
