@@ -6,6 +6,7 @@
 /**
  * 環境
  * @param nameBind 変数対応表
+ * @param outerOpt 外側の環境(スコープ外のグローバル変数への代入などに対応するため)
  * @param ret 返り値
  */
 case class Environment (nameBind : Map[String,Bindable] = Map.empty,
