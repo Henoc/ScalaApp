@@ -96,7 +96,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
    */
   override val whiteSpace = """( |\t|\x0B|\f|\r)+""".r
 
-  def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|>|<|%""".r ^^ { case e => Operator(e)})
+  def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
   def identifier : Parser[Binder] =    positioned( ident                         ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
