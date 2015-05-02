@@ -60,7 +60,7 @@ case class PrimaryExpr(child : Expr, arguments : List[Expr]) extends Expr
 sealed trait Stmt extends Evaluable
 case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case class NullStmt() extends Stmt
-case class IfStmt(condition : Expr, thenBlock : BlockStmt, elseBlock : Option[BlockStmt]) extends Stmt
+case class IfStmt(condition : Expr, thenBlock : Cluster, elseBlock : Option[Cluster]) extends Stmt
 case class WhileStmt(condition : Expr, whileBlock : BlockStmt) extends Stmt
 case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluster) extends Stmt
 
@@ -72,7 +72,7 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
  * factor := "-" primary | primary
  * cluster := expr | block
  * statement := ifStatement | whileStatement | letStatement | simple
- * ifStatement := "if" expr block [ "else block ]
+ * ifStatement := "if" primary cluster [ "else" cluster ]
  * whileStatement := "while" expr block
  * letStatement := "let" identifier [params] "=" cluster
  * block := "{" [statement] { (";" | "\n") [statement] } "}"
@@ -133,8 +133,8 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def cluster : Parser[Cluster] = expr | block
   
   def statement   : Parser[Stmt] = ifStatement | whileStatement | letStatement | simple
-  def ifStatement : Parser[IfStmt] = "if" ~> expr ~ block ~ opt("else" ~> block) ^^ {
-    case cond ~ thenBlk ~ elseBlkOpt => IfStmt(cond,thenBlk,elseBlkOpt)
+  def ifStatement : Parser[IfStmt] = "if" ~> primary ~ cluster ~ opt("else" ~> cluster) ^^ {
+    case cond ~ thenCluster ~ elseClusterOpt => IfStmt(cond,thenCluster,elseClusterOpt)
   }
   def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
   def block       : Parser[BlockStmt] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^

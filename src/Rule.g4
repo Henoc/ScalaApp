@@ -15,7 +15,7 @@ grammar Rule;
  factor : (MINUS primary) | primary ;
  cluster : expr | block ;
  statement : ifStatement | whileStatement | letStatement | simple ;
- ifStatement : 'if' expr block ( 'else' block )? ;
+ ifStatement : 'if' primary cluster ( 'else' cluster )? ;
  whileStatement : 'while' expr block ;
  letStatement : 'let' IDENTIFIER ( params )? '=' cluster ;
  block : '{' ( statement )? ( (';' | '\n' ) (statement)? )* '}' ;
