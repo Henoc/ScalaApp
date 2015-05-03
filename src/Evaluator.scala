@@ -95,11 +95,11 @@ object Evaluator {
         }
       }
       // 引数が存在するときのみ生成されている節としいる(多分いいはず)
-      case PrimaryExpr(child,arguments) =>  {
+      case prim @ PrimaryExpr(child,arguments) =>  {
         val retEnv = eval(child,env)
         retEnv.ret match {
           // 関数実行(引数が足りている時)
-          case function : Function if arguments.length == function.restNumOfParams() => {
+          case function : Function if prim.numOfValidArgs() == function.restNumOfParams() => {
             // 引数を現在の環境で計算
             // 引数部分で副作用(代入)を起こさないでね
             val evaledArgsIt = arguments.map(eval(_,env).ret).iterator
@@ -124,14 +124,17 @@ object Evaluator {
             env.mutate(ret = evaledInner.ret)
           }
           // 引数とパラメータの数が違うとき
-          case function : Function if arguments.length > function.restNumOfParams() => throw new StoneEvalException("関数のパラメータ数に対して、引数の数が過剰です",retEnv.ret.pos.line, retEnv.ret.pos.column)
+          case function : Function if prim.numOfValidArgs() > function.restNumOfParams() => throw new StoneEvalException("関数のパラメータ数に対して、引数の数が過剰です",retEnv.ret.pos.line, retEnv.ret.pos.column)
           // 部分適用
           case function : Function => {
             val evaledArgsIt = arguments.map(eval(_,env).ret).iterator
             // パラメータ対応Bindableが決まってないところについて、まだ引数が残っていたらそれを付ける
             val newFunc = {
               function.copy(params = function.params.map{
-                case (binder,None) if evaledArgsIt.hasNext => (binder,Some(evaledArgsIt.next()))
+                case (binder,None) if evaledArgsIt.hasNext => evaledArgsIt.next() match {
+                  case UnderLine() => (binder,None)
+                  case others => (binder,Some(others))
+                }
                 case (binder,bindableOpt) => (binder,bindableOpt)
               })
             }

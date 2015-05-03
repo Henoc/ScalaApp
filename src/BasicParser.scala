@@ -29,6 +29,7 @@ case class Binder(text : String) extends Operand
 case class UnitLiteral() extends Bindable
 case class NumberLiteral(value : Int) extends Bindable
 case class StringLiteral(literal : String) extends  Bindable
+case class UnderLine() extends Bindable
 case class Function(params : List[(Binder,Option[Bindable])], var outerEnvOpt : Option[Environment], body : Cluster) extends Bindable {
   /**
    * 無限再帰防止用に、outerEnvを非表示
@@ -66,7 +67,15 @@ case class Operator(opStr : String) extends Expr with Positional{
 
 case class NegativeExpr(primary : Expr) extends Expr
 case class BinaryExpr(left : Expr , op : Operator, right : Expr) extends Expr
-case class PrimaryExpr(child : Expr, arguments : List[Expr]) extends Expr
+case class PrimaryExpr(child : Expr, arguments : List[Expr]) extends Expr {
+  /**
+   * アンダーバー以外の引数の数を返す
+   */
+  def numOfValidArgs() = arguments.map{
+    case UnderLine() => 0
+    case _ => 1
+  }.sum
+}
 
 sealed trait Stmt extends Evaluable
 case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
@@ -94,11 +103,11 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
  * 関数関連
  * param := identifier
  * params := rep1(param)
- * postfix := "(" expr ")" | number | identifier | string
+ * postfix := "(" expr ")" | number | identifier | string | underline
  * function := "fun" params "->" cluster
  *
  * identifier 除外文字列(予約識別子)
- *     fun,if,else,while,let
+ *     fun,if,else,while,let,_
  *
  *
  * oneLine が1行分に相当
@@ -119,8 +128,9 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
-  def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
+  def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)(?!_)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
+  def underline : Parser[UnderLine] =  positioned("""_""".r ^^ {case e => UnderLine()})
 
   def expr : Parser[Expr] = factorsChain | function
   def factorsChain    : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
@@ -174,7 +184,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   //関数関連
   def param = identifier
   def params = rep1(param)
-  def postfix = "(" ~> expr <~ ")" | number | identifier | string
+  def postfix = "(" ~> expr <~ ")" | number | identifier | string | underline
 
   def function : Parser[Function] = "fun" ~> params ~ ("->" ~> cluster) ^^ {
     case lst ~ cls => Function(lst.map(b => (b,None)),None,cls)
