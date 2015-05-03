@@ -98,13 +98,24 @@ object Evaluator {
       case PrimaryExpr(child,arguments) =>  {
         val retEnv = eval(child,env)
         retEnv.ret match {
-          // 関数実行(引数が1つ以上あるとき)
-          case function : Function if arguments.length == function.params.length => {
+          // 関数実行(引数が足りている時)
+          case function : Function if arguments.length == function.restNumOfParams() => {
             // 引数を現在の環境で計算
             // 引数部分で副作用(代入)を起こさないでね
-            val paramNameBinds = Map.empty[String,Bindable] ++ function.params.map{case Binder(x) => x}.zip(arguments.map(eval(_,env).ret))
+            val evaledArgsIt = arguments.map(eval(_,env).ret).iterator
+            val paramNameBinds =
+              Map.empty[String,Bindable] ++
+                function.params.map{
+                  case (Binder(str),None) => (str,evaledArgsIt.next())
+                  case (Binder(str),Some(bindable)) => (str,bindable)
+                }
             // 関数本体計算用環境 = outer + (callerEnv上で計算した(パラメータ -> 引数)対応表(環境の差分))
-            val inner = Environment(paramNameBinds,Some(function.outerEnv),UnitLiteral())
+            val inner = Environment(paramNameBinds,
+              function.outerEnvOpt match{     // outerが入っていなければ現在の環境をouterとする(無名関数用)
+                case None => Some(env)
+                case other => other
+              },
+              UnitLiteral())
             // 関数内の、計算実行後環境
             val evaledInner = eval(function.body,inner)
             //// 関数オブジェクトのouterEnvを評価後の外側環境に更新(可変メンバーの参照先を強引に変更)
@@ -112,8 +123,20 @@ object Evaluator {
             // callerEnvはそのままで、返り値は関数の計算結果
             env.mutate(ret = evaledInner.ret)
           }
-          // 引数とパラメータの数が違うとき TODO: 部分適用
-          case function : Function => throw new StoneEvalException("関数のパラメータ数と引数の数が一致しません",retEnv.ret.pos.line, retEnv.ret.pos.column)
+          // 引数とパラメータの数が違うとき
+          case function : Function if arguments.length > function.restNumOfParams() => throw new StoneEvalException("関数のパラメータ数に対して、引数の数が過剰です",retEnv.ret.pos.line, retEnv.ret.pos.column)
+          // 部分適用
+          case function : Function => {
+            val evaledArgsIt = arguments.map(eval(_,env).ret).iterator
+            // パラメータ対応Bindableが決まってないところについて、まだ引数が残っていたらそれを付ける
+            val newFunc = {
+              function.copy(params = function.params.map{
+                case (binder,None) if evaledArgsIt.hasNext => (binder,Some(evaledArgsIt.next()))
+                case (binder,bindableOpt) => (binder,bindableOpt)
+              })
+            }
+            env.mutate(ret = newFunc)
+          }
           case _ => throw new StoneEvalException("関数でないものに引数が与えられています",retEnv.ret.pos.line, retEnv.ret.pos.column)
         }
       }
@@ -152,7 +175,7 @@ object Evaluator {
         }
         case Some(params) => {
           // 関数の節を作成 定義時の環境(outer)を保存しておく
-          val function = Function(params,env,codes)
+          val function = Function(params.map(b => (b,None)),Some(env),codes)
           env.mutate(nameBind = env.nameBind + (text -> function), ret = UnitLiteral())
         }
       }

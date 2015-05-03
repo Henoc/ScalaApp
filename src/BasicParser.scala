@@ -1,4 +1,5 @@
 
+import scala.reflect.macros.ParseException
 import scala.util.parsing.input.Positional
 import scala.util.parsing.combinator._
 
@@ -28,12 +29,22 @@ case class Binder(text : String) extends Operand
 case class UnitLiteral() extends Bindable
 case class NumberLiteral(value : Int) extends Bindable
 case class StringLiteral(literal : String) extends  Bindable
-case class Function(params : List[Binder], var outerEnv : Environment, body : Cluster) extends Bindable {
+case class Function(params : List[(Binder,Option[Bindable])], var outerEnvOpt : Option[Environment], body : Cluster) extends Bindable {
   /**
    * 無限再帰防止用に、outerEnvを非表示
    * @return
    */
   override def toString() = "Function(" + params.toString() + ", *outerEnv*, " + body.toString + ")"
+
+  /**
+   * Bindableが決まっていないパラメータの数を出す
+   */
+  def restNumOfParams() = {
+    params.map{
+      case (_,None) => 1
+      case _ => 0
+    }.sum
+  }
 }
 
 case class Operator(opStr : String) extends Expr with Positional{
@@ -66,7 +77,8 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
 
 /**
  *
- * expr := factor { op factor }
+ * expr := factorsChain | function
+ * factorsChain := factor {op factor}
  * primary := "(" expr ")" | number | expandable | string
  * expandable := identifier rep(postfix)
  * factor := "-" primary | primary
@@ -83,11 +95,20 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
  * param := identifier
  * params := rep1(param)
  * postfix := "(" expr ")" | number | identifier | string
+ * function := "fun" params "->" cluster
+ *
+ * identifier 除外文字列(予約識別子)
+ *     fun,if,else,while,let
  *
  *
  * oneLine が1行分に相当
  * postfix := expr としないことで n - 1 = (n) (-1) = identifier postfix になる問題を修正
  *
+ * function は expr に追加。primary だと曖昧になるはず
+ * fun x -> x * x = function * number | function になる
+ *
+ * 現状、 (fun x -> x + 5) 1
+ * などの適用の仕方はできない(関数が入った変数への適用のみ)
  */
 object BasicParser extends JavaTokenParsers with RegexParsers {
 
@@ -98,10 +119,11 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
-  def identifier : Parser[Binder] =    positioned( ident                         ^^ { case e => Binder(e)} )
+  def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
 
-  def expr        : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
+  def expr : Parser[Expr] = factorsChain | function
+  def factorsChain    : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
     case a ~ lst => {
       // 解析結果の型が扱いづらいので配列(Array[(Operator,Expr)])に直す
       val ary = {
@@ -153,6 +175,10 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def param = identifier
   def params = rep1(param)
   def postfix = "(" ~> expr <~ ")" | number | identifier | string
+
+  def function : Parser[Function] = "fun" ~> params ~ ("->" ~> cluster) ^^ {
+    case lst ~ cls => Function(lst.map(b => (b,None)),None,cls)
+  }
 
 
   /**

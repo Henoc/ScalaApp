@@ -9,7 +9,8 @@ grammar Rule;
  *
  */
 
- expr : factor ( OP factor )* ;
+ expr : factorsChain | function ;
+ factorsChain : factor (OP factor)* ;
  primary : '(' expr ')' | NUMBER | expandable | STRING ;
  expandable : IDENTIFIER ( postfix )* ;
  factor : (MINUS primary) | primary ;
@@ -25,6 +26,8 @@ grammar Rule;
  param : IDENTIFIER ;
  params : (param)+ ;
  postfix : '(' expr ')' | NUMBER | IDENTIFIER | STRING ;
+
+ function : 'fun' params '->' cluster ;
 
  NUMBER : [0-9]+ ;
  IDENTIFIER : [a-zA-Z][0-9a-zA-Z]* ;
