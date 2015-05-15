@@ -52,6 +52,9 @@ object ParserTest {
           case 's' => {
             println(env)
           }
+          case _ => {
+            println("invalid operator")
+          }
         }
       }
     }

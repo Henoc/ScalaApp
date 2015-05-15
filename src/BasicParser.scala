@@ -47,6 +47,7 @@ case class Function(params : List[(Binder,Option[Bindable])], var outerEnvOpt : 
     }.sum
   }
 }
+case class Macro(params : List[Binder], body : Cluster) extends Bindable
 
 case class Operator(opStr : String) extends Expr with Positional{
   val (priority, leftAssoc) = opStr match{
@@ -81,8 +82,9 @@ sealed trait Stmt extends Evaluable
 case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case class NullStmt() extends Stmt
 case class IfStmt(condition : Expr, thenBlock : Cluster, elseBlock : Option[Cluster]) extends Stmt
-case class WhileStmt(condition : Expr, whileBlock : BlockStmt) extends Stmt
+case class WhileStmt(condition : Expr, whileBlock : Cluster) extends Stmt
 case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluster) extends Stmt
+case class MacroStmt(named : Binder, params : Option[List[Binder]] , codes : Cluster) extends Stmt
 
 /**
  *
@@ -94,8 +96,8 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
  * cluster := expr | block
  * statement := ifStatement | whileStatement | letStatement | simple
  * ifStatement := "if" primary cluster [ "else" cluster ]
- * whileStatement := "while" expr block
- * letStatement := "let" identifier [params] "=" cluster
+ * whileStatement := "while" expr cluster
+ * letStatement := "let" ["macro"] identifier [params] "=" cluster
  * block := "{" [statement] { (";" | "\n") [statement] } "}"
  * simple := expr
  * oneLine := [statement] (";" | "\n")
@@ -107,7 +109,7 @@ case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluste
  * function := "fun" params "->" cluster
  *
  * identifier 除外文字列(予約識別子)
- *     fun,if,else,while,let,_
+ *     fun,if,else,while,let,_,macro
  *
  *
  * oneLine が1行分に相当
@@ -128,7 +130,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
-  def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)(?!_)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
+  def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)(?!_)(?!macro)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
   def underline : Parser[UnderLine] =  positioned("""_""".r ^^ {case e => UnderLine()})
 
@@ -168,11 +170,12 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def ifStatement : Parser[IfStmt] = "if" ~> primary ~ cluster ~ opt("else" ~> cluster) ^^ {
     case cond ~ thenCluster ~ elseClusterOpt => IfStmt(cond,thenCluster,elseClusterOpt)
   }
-  def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ block ^^ {case cond ~ blk => WhileStmt(cond,blk)}
+  def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ cluster ^^ {case cond ~ cls => WhileStmt(cond,cls)}
   def block       : Parser[BlockStmt] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
     {case lst => BlockStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
-  def letStatement : Parser[LetStmt] = "let" ~> identifier ~ opt(params) ~ ("=" ~> cluster) ^^ {
-      case named ~ paramsOpt ~ right => LetStmt (named, paramsOpt, right)
+  def letStatement : Parser[Stmt] = "let" ~> opt("macro") ~ identifier ~ opt(params) ~ ("=" ~> cluster) ^^ {
+      case None ~ named ~ paramsOpt ~ right => LetStmt (named, paramsOpt, right)
+      case Some(_) ~ named ~ paramsOpt ~ right =>  MacroStmt(named,paramsOpt,right)
     }
   def simple      : Parser[Expr] = expr
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {

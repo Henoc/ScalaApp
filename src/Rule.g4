@@ -18,7 +18,7 @@ grammar Rule;
  statement : ifStatement | whileStatement | letStatement | simple ;
  ifStatement : 'if' primary cluster ( 'else' cluster )? ;
  whileStatement : 'while' expr block ;
- letStatement : 'let' IDENTIFIER ( params )? '=' cluster ;
+ letStatement : 'let' ('macro')? IDENTIFIER ( params )? '=' cluster ;
  block : '{' ( statement )? ( (';' | '\n' ) (statement)? )* '}' ;
  simple : expr ;
  oneLine : (statement)? (';' | '\n') ;

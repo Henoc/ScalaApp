@@ -1,3 +1,4 @@
+import scala.util.parsing.input.Positional
 
 /**
  * Created by heno on 2015/04/24.
@@ -32,6 +33,9 @@ case class Environment (var nameBind : Map[String,Bindable] = Map.empty,
 class StoneEvalException(message : String = null) extends Exception(message){
   def this(mes : String, line : Int, column : Int) = {
     this(mes + " at line: " + line + ", column: " + column)
+  }
+  def this(mes : String, item : Positional) = {
+    this(mes,item.pos.line,item.pos.column)
   }
 }
 
@@ -140,6 +144,11 @@ object Evaluator {
             }
             env.mutate(ret = newFunc)
           }
+          case mac : Macro => {
+            if (prim.numOfValidArgs() != mac.params.length) throw new StoneEvalException("マクロの引数の数が違います",mac.pos.line,mac.pos.column)
+
+            eval(transfer(mac,arguments),env)
+          }
           case _ => throw new StoneEvalException("関数でないものに引数が与えられています",retEnv.ret.pos.line, retEnv.ret.pos.column)
         }
       }
@@ -182,6 +191,11 @@ object Evaluator {
           env.mutate(nameBind = env.nameBind + (text -> function), ret = UnitLiteral())
         }
       }
+
+      case MacroStmt(binder @ Binder(text),paramsOpt,codes) => paramsOpt match {
+        case None => throw new StoneEvalException("引数なしのマクロは定義できません",binder.pos.line,binder.pos.column)
+        case Some(params) => env.mutate(nameBind = env.nameBind + (text -> Macro(params,codes)), ret = UnitLiteral())
+      }
     }
   }
 
@@ -201,6 +215,72 @@ object Evaluator {
       case Some(outer) => env.mutate(outerOpt = Some(binder(outer,text,bindable)))
     }
 
+  }
+
+  /**
+   * マクロ用、AST置換関数
+   * 部分木のtransferでは、返り値の型が決まっているので、asInstanceOfを使っている
+   * ここでエラーが出ることは無いはず・・・
+   * @param mac
+   * @param args
+   * @return
+   */
+  def transfer(mac : Macro,args : List[Expr]):Cluster = {
+    val changeBodyAndTransfer = (newBody : Cluster) => transfer(mac.copy(body = newBody),args)
+    mac.body match {
+      case expr : Expr => expr match {
+        case ne : NegativeExpr => NegativeExpr(changeBodyAndTransfer(ne.primary).asInstanceOf[Expr])
+        case pe : PrimaryExpr => {
+          val trChild = changeBodyAndTransfer(pe.child).asInstanceOf[Expr]
+          val trArgs = pe.arguments.map(e => changeBodyAndTransfer(e).asInstanceOf[Expr])
+          PrimaryExpr(trChild,trArgs)
+        }
+        case be : BinaryExpr => {
+          val trLeft = changeBodyAndTransfer(be.left).asInstanceOf[Expr]
+          val trRight = changeBodyAndTransfer(be.right).asInstanceOf[Expr]
+          BinaryExpr(trLeft,be.op,trRight)
+        }
+        case oe : Operator => throw new StoneEvalException("マクロ置換中、オペレータを置換しようとしました",oe)
+        case operand : Operand => operand match {
+          case bindable : Bindable => bindable
+          case binder : Binder => {
+            (for((param,arg) <- mac.params.zip(args) if param == binder) yield arg) match{
+              case Nil => binder
+              case arg :: Nil => arg
+              case _ => throw new StoneEvalException("複数のマクロパラメータが同一の可能性があります",binder)
+            }
+          }
+          case _ => throw new StoneEvalException("マクロ置換中、未知のOperandクラスに遭遇しました",mac)
+        }
+        case _ => throw new StoneEvalException("マクロ置換中、未知のExprクラスに遭遇しました",mac)
+      }
+      case BlockStmt(stmts) => BlockStmt(stmts.map(stmt => stmt match{
+        case blk : BlockStmt => changeBodyAndTransfer(blk).asInstanceOf[BlockStmt]
+        case ns : NullStmt => ns
+        case ifStmt : IfStmt => {
+          val trCond = changeBodyAndTransfer(ifStmt.condition).asInstanceOf[Expr]
+          val trThen = changeBodyAndTransfer(ifStmt.thenBlock)
+          val trElseOpt = ifStmt.elseBlock match{
+            case None => None
+            case Some(elseBlock) => Some(changeBodyAndTransfer(elseBlock))
+          }
+          IfStmt(trCond,trThen,trElseOpt)
+        }
+        case ws : WhileStmt => {
+          val trCond = changeBodyAndTransfer(ws.condition).asInstanceOf[Expr]
+          val trBlock = changeBodyAndTransfer(ws.whileBlock)
+          WhileStmt(trCond,trBlock)
+        }
+        case ls : LetStmt => {
+          ls.copy(codes = changeBodyAndTransfer(ls.codes))
+        }
+        case ms : MacroStmt => {
+          ms.copy(codes = changeBodyAndTransfer(ms.codes))
+        }
+        case expr : Expr => changeBodyAndTransfer(expr).asInstanceOf[Expr]
+        case _ => throw new StoneEvalException("マクロ置換中、未知のStmtクラスに遭遇しました",mac)
+      }))
+    }
   }
 
   def boolToNumber(b : Boolean) = if(b) 1 else 0
