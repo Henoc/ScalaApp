@@ -25,7 +25,7 @@ fib 10
    if (cond == 0) then
  }
 
- 
+
  *
  * ブロック文の仕様(最後の式以外の式の返り値はすべてUnitを入れた上で無視する)、
  * if文の仕様(else文省略時に不成立ならUnitが返る)に注意
@@ -50,7 +50,7 @@ object ParserTest {
               println("ans: " + env.ret)
             }
             catch{
-              case e => println(e)
+              case e => e.printStackTrace()
             }
             str.clear()
           }

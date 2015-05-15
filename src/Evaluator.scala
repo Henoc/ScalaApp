@@ -273,7 +273,11 @@ object Evaluator {
         val trCodes = changeBodyAndTransfer(ms.codes)
         MacroStmt(trNamed,trParams,trCodes)
       }
-      case expr : Expr => changeBodyAndTransfer(expr).asInstanceOf[Expr]
+        // マクロ置換用シンボルがここに掛かって、実引数に変わる
+        // 実引数はExprの他に、BlockStmt/ScopeStmtの可能性もある(型が広がる)ので注意
+      case expr : Expr => {
+        changeBodyAndTransfer(expr)
+      }
       case _ => throw new StoneEvalException("マクロ置換中、未知のStmtクラスに遭遇しました",mac)
     }
 

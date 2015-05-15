@@ -25,7 +25,7 @@ Stone言語の変形版
     let macro def symbol literal = {
       let symbol = literal
     }
-### 何故かエラーになる
+### for構文(マクロ)
     let macro for init cond each body = [
       init
       while (cond) {
@@ -33,3 +33,9 @@ Stone言語の変形版
         each
       }
     ]
+#### 使用例
+    let j = 0
+    for {let i = 0} (i < 50) (i <- i + 1) {
+        j <- j + 1
+    }
+    j

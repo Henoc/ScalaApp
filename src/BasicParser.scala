@@ -99,7 +99,7 @@ case class MacroStmt(named : Binder, params : Option[List[Binder]] , codes : Clu
  * cluster := expr | block | scope
  * statement := ifStatement | whileStatement | letStatement | cluster
  * ifStatement := "if" primary cluster [ "else" cluster ]
- * whileStatement := "while" expr cluster
+ * whileStatement := "while" primary cluster
  * letStatement := "let" ["macro"] identifier [params] "=" cluster
  * block := "{" stateLst "}"
  * scope := "[" stateLst "]"
@@ -132,7 +132,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
    */
   override val whiteSpace = """( |\t|\x0B|\f|\r)+""".r
 
-  def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|<|%""".r ^^ { case e => Operator(e)})
+  def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|(?!<-)<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
   def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)(?!_)(?!macro)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
@@ -174,7 +174,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def ifStatement : Parser[IfStmt] = "if" ~> primary ~ cluster ~ opt("else" ~> cluster) ^^ {
     case cond ~ thenCluster ~ elseClusterOpt => IfStmt(cond,thenCluster,elseClusterOpt)
   }
-  def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ cluster ^^ {case cond ~ cls => WhileStmt(cond,cls)}
+  def whileStatement : Parser[WhileStmt] = "while" ~> primary ~ cluster ^^ {case cond ~ cls => WhileStmt(cond,cls)}
   def scope : Parser[ScopeStmt] = ("[" ~> stmtLst <~ "]") ^^ {case lst => ScopeStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
   def block : Parser[BlockStmt] = ("{" ~> stmtLst <~ "}") ^^ {case lst => BlockStmt(lst.flatten)}
   def stmtLst : Parser[List[Option[Stmt]]] = repsep(opt(statement),";" | "\n")
