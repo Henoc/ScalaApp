@@ -6,10 +6,10 @@ Stone言語の変形版
 ## 例文
 ### フィボナッチ数列
     let fib n = {
-      if n == 0 {
+      if (n == 0) {
         0
       } else {
-        if n == 1 {
+        if (n == 1) {
           1
         } else {
           (fib (n - 1)) + (fib (n - 2))
@@ -25,3 +25,11 @@ Stone言語の変形版
     let macro def symbol literal = {
       let symbol = literal
     }
+### 何故かエラーになる
+    let macro for init cond each body = [
+      init
+      while (cond) {
+        body
+        each
+      }
+    ]

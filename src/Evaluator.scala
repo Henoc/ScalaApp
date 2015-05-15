@@ -238,7 +238,8 @@ object Evaluator {
     val changeBodyAndTransfer = (newBody : Cluster) => transfer(mac.copy(body = newBody),args)
     // 複文用、Stmtに対してのパターンマッチ
     val stmtCases = (stmt : Stmt) => stmt match{
-      case blk : ScopeStmt => changeBodyAndTransfer(blk).asInstanceOf[ScopeStmt]
+      case scp : ScopeStmt => changeBodyAndTransfer(scp).asInstanceOf[ScopeStmt]
+      case blk : BlockStmt => changeBodyAndTransfer(blk).asInstanceOf[BlockStmt]
       case ns : NullStmt => ns
       case ifStmt : IfStmt => {
         val trCond = changeBodyAndTransfer(ifStmt.condition).asInstanceOf[Expr]

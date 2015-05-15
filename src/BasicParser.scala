@@ -10,7 +10,7 @@ import scala.util.parsing.combinator._
  * positioned() で囲めば (token).pos.line, (token).pos.column で位置情報が出る
  *
  * トレイト
- * Evaluable > Stmt, Cluster
+ * Evaluable > Stmt > Cluster
  * Stmt(単文) > Expr(式) > Operand > Bindable
  * Cluster = Expr | BlockStmt | ScopeStmt
  *
@@ -21,7 +21,7 @@ import scala.util.parsing.combinator._
  */
 
 sealed trait Evaluable
-sealed trait Cluster extends Evaluable
+sealed trait Cluster extends Stmt
 sealed trait Expr extends Stmt with Cluster
 sealed trait Operand extends Expr with Positional
 sealed trait Bindable extends Operand
@@ -97,14 +97,13 @@ case class MacroStmt(named : Binder, params : Option[List[Binder]] , codes : Clu
  * expandable := identifier rep(postfix)
  * factor := "-" primary | primary
  * cluster := expr | block | scope
- * statement := ifStatement | whileStatement | letStatement | simple
+ * statement := ifStatement | whileStatement | letStatement | cluster
  * ifStatement := "if" primary cluster [ "else" cluster ]
  * whileStatement := "while" expr cluster
  * letStatement := "let" ["macro"] identifier [params] "=" cluster
  * block := "{" stateLst "}"
  * scope := "[" stateLst "]"
  * stmtLst := [statement] { (";" | "\n") [statement] }
- * simple := expr
  * oneLine := [statement] (";" | "\n")
  *
  * 関数関連
@@ -171,7 +170,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   
   def cluster : Parser[Cluster] = expr | block | scope
   
-  def statement   : Parser[Stmt] = ifStatement | whileStatement | letStatement | simple
+  def statement   : Parser[Stmt] = ifStatement | whileStatement | letStatement | cluster
   def ifStatement : Parser[IfStmt] = "if" ~> primary ~ cluster ~ opt("else" ~> cluster) ^^ {
     case cond ~ thenCluster ~ elseClusterOpt => IfStmt(cond,thenCluster,elseClusterOpt)
   }
@@ -183,7 +182,6 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
       case None ~ named ~ paramsOpt ~ right => LetStmt (named, paramsOpt, right)
       case Some(_) ~ named ~ paramsOpt ~ right =>  MacroStmt(named,paramsOpt,right)
     }
-  def simple      : Parser[Expr] = expr
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {
     case None => NullStmt()
     case Some(s) => s
