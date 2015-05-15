@@ -12,10 +12,12 @@ import scala.util.parsing.combinator._
  * トレイト
  * Evaluable > Stmt, Cluster
  * Stmt(単文) > Expr(式) > Operand > Bindable
- * Cluster = Expr | BlockStmt
+ * Cluster = Expr | BlockStmt | ScopeStmt
  *
  * Clusterはパーサー類の異なる観点からの集合にすぎない、StmtはClusterを包含する
  * Evaluableならeval()で実行可能
+ *
+ * 新しいASTノードを追加したときに見るべきなのは、eval(), transfer()
  */
 
 sealed trait Evaluable
@@ -68,7 +70,7 @@ case class Operator(opStr : String) extends Expr with Positional{
 
 case class NegativeExpr(primary : Expr) extends Expr
 case class BinaryExpr(left : Expr , op : Operator, right : Expr) extends Expr
-case class PrimaryExpr(child : Expr, arguments : List[Expr]) extends Expr {
+case class PrimaryExpr(child : Expr, arguments : List[Cluster]) extends Expr {
   /**
    * アンダーバー以外の引数の数を返す
    */
@@ -79,6 +81,7 @@ case class PrimaryExpr(child : Expr, arguments : List[Expr]) extends Expr {
 }
 
 sealed trait Stmt extends Evaluable
+case class ScopeStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case class NullStmt() extends Stmt
 case class IfStmt(condition : Expr, thenBlock : Cluster, elseBlock : Option[Cluster]) extends Stmt
@@ -93,19 +96,21 @@ case class MacroStmt(named : Binder, params : Option[List[Binder]] , codes : Clu
  * primary := "(" expr ")" | number | expandable | string
  * expandable := identifier rep(postfix)
  * factor := "-" primary | primary
- * cluster := expr | block
+ * cluster := expr | block | scope
  * statement := ifStatement | whileStatement | letStatement | simple
  * ifStatement := "if" primary cluster [ "else" cluster ]
  * whileStatement := "while" expr cluster
  * letStatement := "let" ["macro"] identifier [params] "=" cluster
- * block := "{" [statement] { (";" | "\n") [statement] } "}"
+ * block := "{" stateLst "}"
+ * scope := "[" stateLst "]"
+ * stmtLst := [statement] { (";" | "\n") [statement] }
  * simple := expr
  * oneLine := [statement] (";" | "\n")
  *
  * 関数関連
  * param := identifier
  * params := rep1(param)
- * postfix := "(" expr ")" | number | identifier | string | underline
+ * postfix := "(" expr ")" | block | scope | number | identifier | string | underline
  * function := "fun" params "->" cluster
  *
  * identifier 除外文字列(予約識別子)
@@ -164,15 +169,16 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   }
   def factor      : Parser[Expr] = ("-" ~> primary) ^^ {case p => NegativeExpr(p)} | primary
   
-  def cluster : Parser[Cluster] = expr | block
+  def cluster : Parser[Cluster] = expr | block | scope
   
   def statement   : Parser[Stmt] = ifStatement | whileStatement | letStatement | simple
   def ifStatement : Parser[IfStmt] = "if" ~> primary ~ cluster ~ opt("else" ~> cluster) ^^ {
     case cond ~ thenCluster ~ elseClusterOpt => IfStmt(cond,thenCluster,elseClusterOpt)
   }
   def whileStatement : Parser[WhileStmt] = "while" ~> expr ~ cluster ^^ {case cond ~ cls => WhileStmt(cond,cls)}
-  def block       : Parser[BlockStmt] = ("{" ~> repsep(opt(statement),";" | "\n") <~ "}") ^^
-    {case lst => BlockStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
+  def scope : Parser[ScopeStmt] = ("[" ~> stmtLst <~ "]") ^^ {case lst => ScopeStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
+  def block : Parser[BlockStmt] = ("{" ~> stmtLst <~ "}") ^^ {case lst => BlockStmt(lst.flatten)}
+  def stmtLst : Parser[List[Option[Stmt]]] = repsep(opt(statement),";" | "\n")
   def letStatement : Parser[Stmt] = "let" ~> opt("macro") ~ identifier ~ opt(params) ~ ("=" ~> cluster) ^^ {
       case None ~ named ~ paramsOpt ~ right => LetStmt (named, paramsOpt, right)
       case Some(_) ~ named ~ paramsOpt ~ right =>  MacroStmt(named,paramsOpt,right)
@@ -187,7 +193,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   //関数関連
   def param = identifier
   def params = rep1(param)
-  def postfix = "(" ~> expr <~ ")" | number | identifier | string | underline
+  def postfix = "(" ~> expr <~ ")" | block | scope | number | identifier | string | underline
 
   def function : Parser[Function] = "fun" ~> params ~ ("->" ~> cluster) ^^ {
     case lst ~ cls => Function(lst.map(b => (b,None)),None,cls)

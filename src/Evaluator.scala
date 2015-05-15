@@ -170,7 +170,7 @@ object Evaluator {
         }
         varEnv
       }
-      case BlockStmt(stmts) => {
+      case ScopeStmt(stmts) => {
         var innerEnv = Environment(Map.empty,Some(env),UnitLiteral())
         for(stmt <- stmts){
           innerEnv = innerEnv.mutate(ret = UnitLiteral())
@@ -179,6 +179,14 @@ object Evaluator {
         // ブロック内で外側環境に与えた変化をもらうため、innerEnvのouterを渡す
         // 返り値はブロック文の最後の文の返り値
         env.mutate(ret = innerEnv.ret)
+      }
+        // スコープなしの複文
+      case BlockStmt(stmts) => {
+        var retEnv = env
+        for(stmt <- stmts) {
+          retEnv = eval(stmt,env)
+        }
+        retEnv
       }
       case LetStmt(Binder(text),paramsOpt, codes) => paramsOpt match {
         case None => {
@@ -225,14 +233,44 @@ object Evaluator {
    * @param args
    * @return
    */
-  def transfer(mac : Macro,args : List[Expr]):Cluster = {
+  def transfer(mac : Macro,args : List[Cluster]):Cluster = {
+    // Macroのbodyのみを変えて、同じ仮引数、実引数でtransferを実行する
     val changeBodyAndTransfer = (newBody : Cluster) => transfer(mac.copy(body = newBody),args)
+    // 複文用、Stmtに対してのパターンマッチ
+    val stmtCases = (stmt : Stmt) => stmt match{
+      case blk : ScopeStmt => changeBodyAndTransfer(blk).asInstanceOf[ScopeStmt]
+      case ns : NullStmt => ns
+      case ifStmt : IfStmt => {
+        val trCond = changeBodyAndTransfer(ifStmt.condition).asInstanceOf[Expr]
+        val trThen = changeBodyAndTransfer(ifStmt.thenBlock)
+        val trElseOpt = ifStmt.elseBlock match{
+          case None => None
+          case Some(elseBlock) => Some(changeBodyAndTransfer(elseBlock))
+        }
+        IfStmt(trCond,trThen,trElseOpt)
+      }
+      case ws : WhileStmt => {
+        val trCond = changeBodyAndTransfer(ws.condition).asInstanceOf[Expr]
+        val trBlock = changeBodyAndTransfer(ws.whileBlock)
+        WhileStmt(trCond,trBlock)
+      }
+      case ls : LetStmt => {
+        ls.copy(codes = changeBodyAndTransfer(ls.codes))
+      }
+      case ms : MacroStmt => {
+        ms.copy(codes = changeBodyAndTransfer(ms.codes))
+      }
+      case expr : Expr => changeBodyAndTransfer(expr).asInstanceOf[Expr]
+      case _ => throw new StoneEvalException("マクロ置換中、未知のStmtクラスに遭遇しました",mac)
+    }
+
+    // パターンマッチ本体
     mac.body match {
       case expr : Expr => expr match {
         case ne : NegativeExpr => NegativeExpr(changeBodyAndTransfer(ne.primary).asInstanceOf[Expr])
         case pe : PrimaryExpr => {
           val trChild = changeBodyAndTransfer(pe.child).asInstanceOf[Expr]
-          val trArgs = pe.arguments.map(e => changeBodyAndTransfer(e).asInstanceOf[Expr])
+          val trArgs = pe.arguments.map(e => changeBodyAndTransfer(e))
           PrimaryExpr(trChild,trArgs)
         }
         case be : BinaryExpr => {
@@ -254,32 +292,8 @@ object Evaluator {
         }
         case _ => throw new StoneEvalException("マクロ置換中、未知のExprクラスに遭遇しました",mac)
       }
-      case BlockStmt(stmts) => BlockStmt(stmts.map(stmt => stmt match{
-        case blk : BlockStmt => changeBodyAndTransfer(blk).asInstanceOf[BlockStmt]
-        case ns : NullStmt => ns
-        case ifStmt : IfStmt => {
-          val trCond = changeBodyAndTransfer(ifStmt.condition).asInstanceOf[Expr]
-          val trThen = changeBodyAndTransfer(ifStmt.thenBlock)
-          val trElseOpt = ifStmt.elseBlock match{
-            case None => None
-            case Some(elseBlock) => Some(changeBodyAndTransfer(elseBlock))
-          }
-          IfStmt(trCond,trThen,trElseOpt)
-        }
-        case ws : WhileStmt => {
-          val trCond = changeBodyAndTransfer(ws.condition).asInstanceOf[Expr]
-          val trBlock = changeBodyAndTransfer(ws.whileBlock)
-          WhileStmt(trCond,trBlock)
-        }
-        case ls : LetStmt => {
-          ls.copy(codes = changeBodyAndTransfer(ls.codes))
-        }
-        case ms : MacroStmt => {
-          ms.copy(codes = changeBodyAndTransfer(ms.codes))
-        }
-        case expr : Expr => changeBodyAndTransfer(expr).asInstanceOf[Expr]
-        case _ => throw new StoneEvalException("マクロ置換中、未知のStmtクラスに遭遇しました",mac)
-      }))
+      case ScopeStmt(stmts) => ScopeStmt(stmts.map(stmtCases(_)))
+      case BlockStmt(stmts) => BlockStmt(stmts.map(stmtCases(_)))
     }
   }
 
