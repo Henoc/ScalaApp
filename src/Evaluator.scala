@@ -255,10 +255,22 @@ object Evaluator {
         WhileStmt(trCond,trBlock)
       }
       case ls : LetStmt => {
-        ls.copy(codes = changeBodyAndTransfer(ls.codes))
+        val trNamed = changeBodyAndTransfer(ls.named).asInstanceOf[Binder]
+        val trParams = ls.params match {
+          case None => None
+          case Some(params) => Some(params.map(changeBodyAndTransfer(_).asInstanceOf[Binder]))
+        }
+        val trCodes = changeBodyAndTransfer(ls.codes)
+        LetStmt(trNamed,trParams,trCodes)
       }
       case ms : MacroStmt => {
-        ms.copy(codes = changeBodyAndTransfer(ms.codes))
+        val trNamed = changeBodyAndTransfer(ms.named).asInstanceOf[Binder]
+        val trParams = ms.params match {
+          case None => None
+          case Some(params) => Some(params.map(changeBodyAndTransfer(_).asInstanceOf[Binder]))
+        }
+        val trCodes = changeBodyAndTransfer(ms.codes)
+        MacroStmt(trNamed,trParams,trCodes)
       }
       case expr : Expr => changeBodyAndTransfer(expr).asInstanceOf[Expr]
       case _ => throw new StoneEvalException("マクロ置換中、未知のStmtクラスに遭遇しました",mac)
