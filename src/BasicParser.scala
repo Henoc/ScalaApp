@@ -88,6 +88,7 @@ case class IfStmt(condition : Expr, thenBlock : Cluster, elseBlock : Option[Clus
 case class WhileStmt(condition : Expr, whileBlock : Cluster) extends Stmt
 case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluster) extends Stmt
 case class MacroStmt(named : Binder, params : Option[List[Binder]] , codes : Cluster) extends Stmt
+case class NativeStmt(operator : String, params : List[Binder]) extends Stmt
 
 /**
  *
@@ -135,7 +136,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|(?!<-)<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
   def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)(?!_)(?!macro)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
-  def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e)} )
+  def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e.substring(1,e.length - 1).replace("""\n""","\n"))} )
   def underline : Parser[UnderLine] =  positioned("""_""".r ^^ {case e => UnderLine()})
 
   def expr : Parser[Expr] = factorsChain | function

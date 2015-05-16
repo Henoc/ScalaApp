@@ -34,8 +34,14 @@ Stone言語の変形版
       }
     ]
 #### 使用例
-    let j = 0
-    for {let i = 0} (i < 50) (i <- i + 1) {
-        j <- j + 1
+    for {let i = 0} (i < 10) (i <- i + 1) {
+        println i
     }
-    j
+### HSP風のrepeat構文(アナフォリックマクロ)
+    let macro repeat bound body = [
+      let cnt = 0
+      while (cnt < bound) {
+        body
+        cnt <- cnt + 1
+      }
+    ]

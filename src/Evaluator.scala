@@ -204,6 +204,21 @@ object Evaluator {
         case None => throw new StoneEvalException("引数なしのマクロは定義できません",binder.pos.line,binder.pos.column)
         case Some(params) => env.mutate(nameBind = env.nameBind + (text -> Macro(params,codes)), ret = UnitLiteral())
       }
+
+      case NativeStmt(operator,params) => operator match {
+        case "print" => {
+          val retEnv = eval(params.head,env)
+          print( retEnv.ret match {
+            case UnitLiteral() => "()"
+            case NumberLiteral(n) => n.toString
+            case StringLiteral(s) => s
+            case Function(_,_,_) => "function"
+            case Macro(_,_) => "macro"
+            case _ => throw new StoneEvalException("printできないものをprintしようとしました",params.head)
+          })
+          retEnv.mutate(ret = UnitLiteral())
+        }
+      }
     }
   }
 
@@ -272,6 +287,10 @@ object Evaluator {
         }
         val trCodes = changeBodyAndTransfer(ms.codes)
         MacroStmt(trNamed,trParams,trCodes)
+      }
+      case ns : NativeStmt => {
+        val trParams = ns.params.map(changeBodyAndTransfer(_).asInstanceOf[Binder])
+        ns.copy(params = trParams)
       }
         // マクロ置換用シンボルがここに掛かって、実引数に変わる
         // 実引数はExprの他に、BlockStmt/ScopeStmtの可能性もある(型が広がる)ので注意
