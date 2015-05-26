@@ -19,6 +19,7 @@ object ParserTest {
 
   val scan = new Scanner(System.in)
   var env = new Environment(nameBind = utilities)
+  val fld = Field() // マクロ用環境．本当はEnvironmentと統合したい
   val str = new StringBuilder
 
   def main(args: Array[String]) {
@@ -44,6 +45,18 @@ object ParserTest {
           }
           case 's' => {
             println(env)
+          }
+          case 'm' => {
+            try{
+              val stmtLst = parse(str.toString()).get
+              val expandedLst = for(stmt <- stmtLst) yield MacroFind.trStmt(stmt,fld)
+              println("parsed: " + stmtLst)
+              println("field: " + fld)
+              println("macro expanded: ")
+              expandedLst.map(println)
+            }catch{
+              case e => e.printStackTrace()
+            }
           }
           case _ => {
             println("invalid operator")

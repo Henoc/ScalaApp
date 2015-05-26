@@ -12,7 +12,7 @@ import scala.util.parsing.input.Positional
  * @param ret 返り値
  */
 case class Environment (var nameBind : Map[String,Bindable] = Map.empty,
-  var outerOpt : Option[Environment] = None,var ret : Bindable = UnitLiteral()) {
+  var outerOpt : Option[Environment] = None,var ret : Bindable = UnitLiteral) {
   /**
    * フィールドを変えて、同じオブジェクトを返す
    * @param nameBind
@@ -40,7 +40,7 @@ class StoneEvalException(message : String = null) extends Exception(message){
 }
 
 object Evaluator {
-  def eval(ast : Evaluable, env :Environment) : Environment = ast match {
+  def eval(ast : Stmt, env :Environment) : Environment = ast match {
     case literal : Bindable => env.mutate(ret = literal)
     case leaf : Operand => leaf match {
       case Binder(text) => {
@@ -119,7 +119,7 @@ object Evaluator {
                 case None => Some(env)
                 case other => other
               },
-              UnitLiteral())
+              UnitLiteral)
             // 関数内の、計算実行後環境
             val evaledInner = eval(function.body,inner)
             //// 関数オブジェクトのouterEnvを評価後の外側環境に更新(可変メンバーの参照先を強引に変更)
@@ -136,7 +136,7 @@ object Evaluator {
             val newFunc = {
               function.copy(params = function.params.map{
                 case (binder,None) if evaledArgsIt.hasNext => evaledArgsIt.next() match {
-                  case UnderLine() => (binder,None)
+                  case UnderLine => (binder,None)
                   case others => (binder,Some(others))
                 }
                 case (binder,bindableOpt) => (binder,bindableOpt)
@@ -154,12 +154,12 @@ object Evaluator {
       }
     }
     case stmt : Stmt => stmt match {
-      case NullStmt() => env
+      case NullStmt => env
       case IfStmt(condition,thenBlock,elseBlock) => {
         if(anyToBool(eval(condition, env))) eval(thenBlock, env) else {
           elseBlock match {
             case Some(e) => eval(e,env)
-            case None => env.mutate(ret = UnitLiteral())
+            case None => env.mutate(ret = UnitLiteral)
           }
         }
       }
@@ -171,9 +171,9 @@ object Evaluator {
         varEnv
       }
       case ScopeStmt(stmts) => {
-        var innerEnv = Environment(Map.empty,Some(env),UnitLiteral())
+        var innerEnv = Environment(Map.empty,Some(env),UnitLiteral)
         for(stmt <- stmts){
-          innerEnv = innerEnv.mutate(ret = UnitLiteral())
+          innerEnv = innerEnv.mutate(ret = UnitLiteral)
           innerEnv = eval(stmt,innerEnv)
         }
         // ブロック内で外側環境に与えた変化をもらうため、innerEnvのouterを渡す
@@ -196,27 +196,27 @@ object Evaluator {
         case Some(params) => {
           // 関数の節を作成 定義時の環境(outer)を保存しておく
           val function = Function(params.map(b => (b,None)),Some(env),codes)
-          env.mutate(nameBind = env.nameBind + (text -> function), ret = UnitLiteral())
+          env.mutate(nameBind = env.nameBind + (text -> function), ret = UnitLiteral)
         }
       }
 
       case MacroStmt(binder @ Binder(text),paramsOpt,codes) => paramsOpt match {
         case None => throw new StoneEvalException("引数なしのマクロは定義できません",binder.pos.line,binder.pos.column)
-        case Some(params) => env.mutate(nameBind = env.nameBind + (text -> Macro(params,codes)), ret = UnitLiteral())
+        case Some(params) => env.mutate(nameBind = env.nameBind + (text -> Macro(params,codes)), ret = UnitLiteral)
       }
 
       case NativeStmt(operator,params) => operator match {
         case "print" => {
           val retEnv = eval(params.head,env)
           print( retEnv.ret match {
-            case UnitLiteral() => "()"
+            case UnitLiteral => "()"
             case NumberLiteral(n) => n.toString
             case StringLiteral(s) => s
             case Function(_,_,_) => "function"
             case Macro(_,_) => "macro"
             case _ => throw new StoneEvalException("printできないものをprintしようとしました",params.head)
           })
-          retEnv.mutate(ret = UnitLiteral())
+          retEnv.mutate(ret = UnitLiteral)
         }
       }
     }
@@ -255,7 +255,7 @@ object Evaluator {
     val stmtCases = (stmt : Stmt) => stmt match{
       case scp : ScopeStmt => changeBodyAndTransfer(scp).asInstanceOf[ScopeStmt]
       case blk : BlockStmt => changeBodyAndTransfer(blk).asInstanceOf[BlockStmt]
-      case ns : NullStmt => ns
+      case NullStmt => NullStmt
       case ifStmt : IfStmt => {
         val trCond = changeBodyAndTransfer(ifStmt.condition).asInstanceOf[Expr]
         val trThen = changeBodyAndTransfer(ifStmt.thenBlock)

@@ -10,7 +10,7 @@ import scala.util.parsing.combinator._
  * positioned() で囲めば (token).pos.line, (token).pos.column で位置情報が出る
  *
  * トレイト
- * Evaluable > Stmt > Cluster
+ * Stmt > Cluster
  * Stmt(単文) > Expr(式) > Operand > Bindable
  * Cluster = Expr | BlockStmt | ScopeStmt
  *
@@ -20,7 +20,6 @@ import scala.util.parsing.combinator._
  * 新しいASTノードを追加したときに見るべきなのは、eval(), transfer()
  */
 
-sealed trait Evaluable
 sealed trait Cluster extends Stmt
 sealed trait Expr extends Stmt with Cluster
 sealed trait Operand extends Expr with Positional
@@ -28,10 +27,10 @@ sealed trait Bindable extends Operand
 
 case class Binder(text : String) extends Operand
 
-case class UnitLiteral() extends Bindable
+case object UnitLiteral extends Bindable
 case class NumberLiteral(value : Int) extends Bindable
 case class StringLiteral(literal : String) extends  Bindable
-case class UnderLine() extends Bindable
+case object UnderLine extends Bindable
 case class Function(params : List[(Binder,Option[Bindable])], var outerEnvOpt : Option[Environment], body : Cluster) extends Bindable {
   /**
    * 無限再帰防止用に、outerEnvを非表示
@@ -75,15 +74,15 @@ case class PrimaryExpr(child : Expr, arguments : List[Cluster]) extends Expr {
    * アンダーバー以外の引数の数を返す
    */
   def numOfValidArgs() = arguments.map{
-    case UnderLine() => 0
+    case UnderLine => 0
     case _ => 1
   }.sum
 }
 
-sealed trait Stmt extends Evaluable
+sealed trait Stmt
 case class ScopeStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
-case class NullStmt() extends Stmt
+case object NullStmt extends Stmt
 case class IfStmt(condition : Expr, thenBlock : Cluster, elseBlock : Option[Cluster]) extends Stmt
 case class WhileStmt(condition : Expr, whileBlock : Cluster) extends Stmt
 case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluster) extends Stmt
@@ -137,7 +136,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
   def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)(?!_)(?!macro)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e.substring(1,e.length - 1).replace("""\n""","\n"))} )
-  def underline : Parser[UnderLine] =  positioned("""_""".r ^^ {case e => UnderLine()})
+  def underline : Parser[Operand] =  positioned("""_""".r ^^ {case e => UnderLine})
 
   def expr : Parser[Expr] = factorsChain | function
   def factorsChain    : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
@@ -184,7 +183,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
       case Some(_) ~ named ~ paramsOpt ~ right =>  MacroStmt(named,paramsOpt,right)
     }
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {
-    case None => NullStmt()
+    case None => NullStmt
     case Some(s) => s
   } ) <~ (";" | "\n")
   def program : Parser[List[Stmt]] = rep(oneLine)
