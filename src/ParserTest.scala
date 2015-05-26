@@ -31,8 +31,12 @@ object ParserTest {
           case 'e' => {
             try{
               val stmtLst = parse(str.toString()).get
-              for(stmt <- stmtLst) env = Evaluator.eval(stmt,env)
-              println("parsed: " + stmtLst)
+              val expandedLst = for(stmt <- stmtLst) yield MacroFind.trStmt(stmt,fld)
+              for(stmt <- expandedLst) env = Evaluator.eval(stmt,env)
+              println("parsed: ")
+              stmtLst.map(println)
+              println("macro expanded: ")
+              expandedLst.map(println)
               println("ans: " + env.ret)
             }
             catch{
@@ -45,12 +49,14 @@ object ParserTest {
           }
           case 's' => {
             println(env)
+            println(fld)
           }
           case 'm' => {
             try{
               val stmtLst = parse(str.toString()).get
               val expandedLst = for(stmt <- stmtLst) yield MacroFind.trStmt(stmt,fld)
-              println("parsed: " + stmtLst)
+              println("parsed: ")
+              stmtLst.map(println)
               println("field: " + fld)
               println("macro expanded: ")
               expandedLst.map(println)
