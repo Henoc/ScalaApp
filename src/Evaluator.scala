@@ -78,10 +78,10 @@ object Evaluator {
               case "*" => retEnv(NumberLiteral(ln * rn))
               case "/" => retEnv(NumberLiteral(ln / rn))
               case "%" => retEnv(NumberLiteral(ln % rn))
-              case "<" => retEnv(NumberLiteral(boolToNumber(ln < rn)))
-              case ">" => retEnv(NumberLiteral(boolToNumber(ln > rn)))
-              case "=="=> retEnv(NumberLiteral(boolToNumber(ln == rn)))
-              case "!="=> retEnv(NumberLiteral(boolToNumber(ln != rn)))
+              case "<" => retEnv(BooleanLiteral(ln < rn))
+              case ">" => retEnv(BooleanLiteral(ln > rn))
+              case "=="=> retEnv(BooleanLiteral(ln == rn))
+              case "!="=> retEnv(BooleanLiteral(ln != rn))
             }
             case (StringLiteral(ln),StringLiteral(rn)) => opStr match {
               case "+" => retEnv(StringLiteral(ln + rn))
@@ -147,11 +147,12 @@ object Evaluator {
           case mac : Macro => throw new StoneEvalException("評価時にMacroが存在しています",mac)
         }
       }
+      case ClusterExpr(cluster) => eval(cluster,env)
     }
     case stmt : Stmt => stmt match {
       case NullStmt => env
       case IfStmt(condition,thenBlock,elseBlock) => {
-        if(anyToBool(eval(condition, env))) eval(thenBlock, env) else {
+        if(eval(condition, env).ret.asInstanceOf[BooleanLiteral].bool) eval(thenBlock, env) else {
           elseBlock match {
             case Some(e) => eval(e,env)
             case None => env.mutate(ret = UnitLiteral)
@@ -160,7 +161,7 @@ object Evaluator {
       }
       case WhileStmt(condition,whileBlock) => {
         var varEnv = env
-        while(anyToBool(eval(condition,varEnv))){
+        while(eval(condition,varEnv).ret.asInstanceOf[BooleanLiteral].bool){
           varEnv = eval(whileBlock,varEnv)
         }
         varEnv
@@ -183,7 +184,7 @@ object Evaluator {
         }
         retEnv
       }
-      case LetStmt(Binder(text),paramsOpt, codes) => paramsOpt match {
+      case LetStmt(Binder(text),paramsOpt, codes, _) => paramsOpt match {
         case None => {
           val rightEnv = eval(codes,env)
           rightEnv.mutate(nameBind = rightEnv.nameBind + (text -> rightEnv.ret))
@@ -232,102 +233,10 @@ object Evaluator {
 
   }
 
-  /**
-   * マクロ用、AST置換関数
-   * 部分木のtransferでは、返り値の型が決まっているので、asInstanceOfを使っている
-   * ここでエラーが出ることは無いはず・・・
-   * @param mac
-   * @param args
-   * @return
-   */
   @deprecated
-  def transfer(mac : Macro,args : List[Cluster]):Cluster = {
-    // Macroのbodyのみを変えて、同じ仮引数、実引数でtransferを実行する
-    val changeBodyAndTransfer = (newBody : Cluster) => transfer(mac.copy(body = newBody),args)
-    // 複文用、Stmtに対してのパターンマッチ
-    val stmtCases = (stmt : Stmt) => stmt match{
-      case scp : ScopeStmt => changeBodyAndTransfer(scp).asInstanceOf[ScopeStmt]
-      case blk : BlockStmt => changeBodyAndTransfer(blk).asInstanceOf[BlockStmt]
-      case NullStmt => NullStmt
-      case ifStmt : IfStmt => {
-        val trCond = changeBodyAndTransfer(ifStmt.condition).asInstanceOf[Expr]
-        val trThen = changeBodyAndTransfer(ifStmt.thenBlock)
-        val trElseOpt = ifStmt.elseBlock match{
-          case None => None
-          case Some(elseBlock) => Some(changeBodyAndTransfer(elseBlock))
-        }
-        IfStmt(trCond,trThen,trElseOpt)
-      }
-      case ws : WhileStmt => {
-        val trCond = changeBodyAndTransfer(ws.condition).asInstanceOf[Expr]
-        val trBlock = changeBodyAndTransfer(ws.whileBlock)
-        WhileStmt(trCond,trBlock)
-      }
-      case ls : LetStmt => {
-        val trNamed = changeBodyAndTransfer(ls.named).asInstanceOf[Binder]
-        val trParams = ls.params match {
-          case None => None
-          case Some(params) => Some(params.map(changeBodyAndTransfer(_).asInstanceOf[Binder]))
-        }
-        val trCodes = changeBodyAndTransfer(ls.codes)
-        LetStmt(trNamed,trParams,trCodes)
-      }
-      case ms : MacroStmt => {
-        val trNamed = changeBodyAndTransfer(ms.named).asInstanceOf[Binder]
-        val trParams = ms.params match {
-          case None => None
-          case Some(params) => Some(params.map(changeBodyAndTransfer(_).asInstanceOf[Binder]))
-        }
-        val trCodes = changeBodyAndTransfer(ms.codes)
-        MacroStmt(trNamed,trParams,trCodes)
-      }
-      case ns : NativeStmt => {
-        val trParams = ns.params.map(changeBodyAndTransfer(_).asInstanceOf[Binder])
-        ns.copy(params = trParams)
-      }
-        // マクロ置換用シンボルがここに掛かって、実引数に変わる
-        // 実引数はExprの他に、BlockStmt/ScopeStmtの可能性もある(型が広がる)ので注意
-      case expr : Expr => {
-        changeBodyAndTransfer(expr)
-      }
-      case _ => throw new StoneEvalException("マクロ置換中、未知のStmtクラスに遭遇しました",mac)
-    }
-
-    // パターンマッチ本体
-    mac.body match {
-      case expr : Expr => expr match {
-        case ne : NegativeExpr => NegativeExpr(changeBodyAndTransfer(ne.primary).asInstanceOf[Expr])
-        case pe : PrimaryExpr => {
-          val trChild = changeBodyAndTransfer(pe.child).asInstanceOf[Expr]
-          val trArgs = pe.arguments.map(e => changeBodyAndTransfer(e))
-          PrimaryExpr(trChild,trArgs)
-        }
-        case be : BinaryExpr => {
-          val trLeft = changeBodyAndTransfer(be.left).asInstanceOf[Expr]
-          val trRight = changeBodyAndTransfer(be.right).asInstanceOf[Expr]
-          BinaryExpr(trLeft,be.op,trRight)
-        }
-        case oe : Operator => throw new StoneEvalException("マクロ置換中、オペレータを置換しようとしました",oe)
-        case operand : Operand => operand match {
-          case bindable : Bindable => bindable
-          case binder : Binder => {
-            (for((param,arg) <- mac.params.zip(args) if param == binder) yield arg) match{
-              case Nil => binder
-              case arg :: Nil => arg
-              case _ => throw new StoneEvalException("複数のマクロパラメータが同一の可能性があります",binder)
-            }
-          }
-          case _ => throw new StoneEvalException("マクロ置換中、未知のOperandクラスに遭遇しました",mac)
-        }
-        case _ => throw new StoneEvalException("マクロ置換中、未知のExprクラスに遭遇しました",mac)
-      }
-      case ScopeStmt(stmts) => ScopeStmt(stmts.map(stmtCases(_)))
-      case BlockStmt(stmts) => BlockStmt(stmts.map(stmtCases(_)))
-    }
-  }
-
   def boolToNumber(b : Boolean) = if(b) 1 else 0
 
+  @deprecated
   def anyToBool(e : Environment) = e.ret match{
     case NumberLiteral(n) if n == 0 => false
     case _ => true

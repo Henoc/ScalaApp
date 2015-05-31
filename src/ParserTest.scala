@@ -20,6 +20,7 @@ object ParserTest {
   val scan = new Scanner(System.in)
   var env = new Environment(nameBind = utilities)
   val fld = Field() // マクロ用環境．本当はEnvironmentと統合したい
+  val typefld = TypeField()
   val str = new StringBuilder
 
   def main(args: Array[String]) {
@@ -32,11 +33,13 @@ object ParserTest {
             try{
               val stmtLst = parse(str.toString()).get
               val expandedLst = for(stmt <- stmtLst) yield MacroFind.trStmt(stmt,fld)
+              stmtLst.map(TypeCheck.chStmt(_,typefld))
               for(stmt <- expandedLst) env = Evaluator.eval(stmt,env)
               println("parsed: ")
               stmtLst.map(println)
               println("macro expanded: ")
               expandedLst.map(println)
+              println("type checked")
               println("ans: " + env.ret)
             }
             catch{
@@ -50,6 +53,7 @@ object ParserTest {
           case 's' => {
             println(env)
             println(fld)
+            println(typefld)
           }
           case 'm' => {
             try{
@@ -63,6 +67,17 @@ object ParserTest {
             }catch{
               case e => e.printStackTrace()
             }
+            str.clear()
+          }
+          case 't' => {
+            try{
+              val stmtLst = parse(str.toString()).get
+              stmtLst.map(TypeCheck.chStmt(_,typefld))
+              println("type checked")
+            }catch{
+              case e => e.printStackTrace()
+            }
+            str.clear()
           }
           case _ => {
             println("invalid operator")

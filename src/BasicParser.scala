@@ -13,6 +13,7 @@ import scala.util.parsing.combinator._
  * Stmt > Cluster
  * Stmt(単文) > Expr(式) > Operand > Bindable
  * Cluster = Expr | BlockStmt | ScopeStmt
+ * Named = Binder | Operator
  *
  * Clusterはパーサー類の異なる観点からの集合にすぎない、StmtはClusterを包含する
  * Evaluableならeval()で実行可能
@@ -24,12 +25,14 @@ sealed trait Cluster extends Stmt
 sealed trait Expr extends Stmt with Cluster
 sealed trait Operand extends Expr with Positional
 sealed trait Bindable extends Operand
+sealed trait Named
 
-case class Binder(text : String) extends Operand
+case class Binder(text : String) extends Operand with Named
 
 case object UnitLiteral extends Bindable
 case class NumberLiteral(value : Int) extends Bindable
 case class StringLiteral(literal : String) extends  Bindable
+case class BooleanLiteral(bool : Boolean) extends Bindable
 case object UnderLine extends Bindable
 case class Function(params : List[(Binder,Option[Bindable])], var outerEnvOpt : Option[Environment], body : Cluster) extends Bindable {
   /**
@@ -50,7 +53,7 @@ case class Function(params : List[(Binder,Option[Bindable])], var outerEnvOpt : 
 }
 case class Macro(params : List[Binder], body : Cluster) extends Bindable
 
-case class Operator(opStr : String) extends Expr with Positional{
+case class Operator(opStr : String) extends Expr with Positional with Named{
   val (priority, leftAssoc) = opStr match{
     case "dummy" => (Int.MinValue/100, true)
 
@@ -78,6 +81,7 @@ case class PrimaryExpr(child : Expr, arguments : List[Cluster]) extends Expr {
     case _ => 1
   }.sum
 }
+case class ClusterExpr(cluster : Cluster) extends Expr // 式の中にクラスターを入れられるようにする構文だまし
 
 sealed trait Stmt
 case class ScopeStmt(stmts : List[Stmt]) extends Stmt with Cluster
@@ -85,42 +89,47 @@ case class BlockStmt(stmts : List[Stmt]) extends Stmt with Cluster
 case object NullStmt extends Stmt
 case class IfStmt(condition : Expr, thenBlock : Cluster, elseBlock : Option[Cluster]) extends Stmt
 case class WhileStmt(condition : Expr, whileBlock : Cluster) extends Stmt
-case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluster) extends Stmt
-case class MacroStmt(named : Binder, params : Option[List[Binder]] , codes : Cluster) extends Stmt
+case class LetStmt(named : Binder, params : Option[List[Binder]], codes : Cluster, typeInfo : Type) extends Stmt
+case class MacroStmt(named : Named, params : List[Binder] , codes : Cluster) extends Stmt
 case class NativeStmt(operator : String, params : List[Binder]) extends Stmt
 
 /**
  *
  * expr := factorsChain | function
  * factorsChain := factor {op factor}
- * primary := "(" expr ")" | number | expandable | string
- * expandable := identifier rep(postfix)
+ * primary := "(" expr ")" | NUMBER | expandable | STRING | BOOLEAN
+ * expandable := IDENTIFIER rep(postfix)
  * factor := "-" primary | primary
  * cluster := expr | block | scope
  * statement := ifStatement | whileStatement | letStatement | cluster
  * ifStatement := "if" primary cluster [ "else" cluster ]
  * whileStatement := "while" primary cluster
- * letStatement := "let" ["macro"] identifier [params] "=" cluster
+ * letStatement := typeSeries (";" | "\n") ["macro"] ( letPostfix | letOpPostfix )
+ * letPostfix := IDENTIFIER [params] "=" cluster
+ * letOpPostfix := op IDENTIFIER IDENTIFIER "=" cluster
  * block := "{" stateLst "}"
  * scope := "[" stateLst "]"
  * stmtLst := [statement] { (";" | "\n") [statement] }
  * oneLine := [statement] (";" | "\n")
  *
  * 関数関連
- * param := identifier
+ * param := IDENTIFIER
  * params := rep1(param)
- * postfix := "(" expr ")" | block | scope | number | identifier | string | underline
+ * postfix := "(" expr ")" | block | scope | NUMBER | IDENTIFIER | STRING | BOOLEAN | UNDERLINE
  * function := "fun" params "->" cluster
  *
- * identifier 除外文字列(予約識別子)
- *     fun,if,else,while,let,_,macro
+ * 型
+ * typeSeries := repsep1( typeInfo , "->" )
+ *
+ * IDENTIFIER 除外文字列(予約識別子)
+ *     fun,if,else,while,_,macro,true,false
  *
  *
  * oneLine が1行分に相当
- * postfix := expr としないことで n - 1 = (n) (-1) = identifier postfix になる問題を修正
+ * postfix := expr としないことで n - 1 = (n) (-1) = IDENTIFIER postfix になる問題を修正
  *
  * function は expr に追加。primary だと曖昧になるはず
- * fun x -> x * x = function * number | function になる
+ * fun x -> x * x = function * NUMBER | function になる
  *
  * 現状、 (fun x -> x + 5) 1
  * などの適用の仕方はできない(関数が入った変数への適用のみ)
@@ -134,9 +143,11 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
 
   def op : Parser[Operator] =          positioned("""\+|-|\*|\/|<-|==|!=|>|(?!<-)<|%""".r ^^ { case e => Operator(e)})
   def number : Parser[NumberLiteral] = positioned( decimalNumber                 ^^ { case e => NumberLiteral(e.toInt)} )
-  def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!let)(?!else)(?!_)(?!macro)\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
+  def identifier : Parser[Binder] =    positioned("""(?!fun)(?!if)(?!while)(?!else)(?!_)(?!macro)(?!true)(?!false)[a-z]\p{javaJavaIdentifierPart}*""".r ^^ { case e => Binder(e)} )
   def string : Parser[StringLiteral] = positioned( stringLiteral                 ^^ { case e => StringLiteral(e.substring(1,e.length - 1).replace("""\n""","\n"))} )
-  def underline : Parser[Operand] =  positioned("""_""".r ^^ {case e => UnderLine})
+  def boolean : Parser[BooleanLiteral]=positioned(("true" ^^ {case e => BooleanLiteral(true)} | "false" ^^ {case e => BooleanLiteral(false)}))
+  def underline : Parser[Operand] =    positioned("""_""".r ^^ {case e => UnderLine})
+  def typeInfo : Parser[AnType]      = positioned("""[A-Z]\p{javaJavaIdentifierPart}*""".r ^^ {case e => AnType(e)})
 
   def expr : Parser[Expr] = factorsChain | function
   def factorsChain    : Parser[Expr] = factor ~ rep(op ~ factor) ^^ {
@@ -156,7 +167,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
     }
   }
   
-  def primary     : Parser[Expr] =  "(" ~> expr <~ ")" | number | expandable | string
+  def primary     : Parser[Expr] =  "(" ~> expr <~ ")" | number | expandable | string | boolean
 
   /**
    * 変数名または、変数名に引数がついたもの
@@ -178,10 +189,14 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def scope : Parser[ScopeStmt] = ("[" ~> stmtLst <~ "]") ^^ {case lst => ScopeStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
   def block : Parser[BlockStmt] = ("{" ~> stmtLst <~ "}") ^^ {case lst => BlockStmt(lst.flatten)}
   def stmtLst : Parser[List[Option[Stmt]]] = repsep(opt(statement),";" | "\n")
-  def letStatement : Parser[Stmt] = "let" ~> opt("macro") ~ identifier ~ opt(params) ~ ("=" ~> cluster) ^^ {
-      case None ~ named ~ paramsOpt ~ right => LetStmt (named, paramsOpt, right)
-      case Some(_) ~ named ~ paramsOpt ~ right =>  MacroStmt(named,paramsOpt,right)
+  def letStatement : Parser[Stmt] = typeSeries ~ ((";" | "\n") ~> opt("macro") ~ (letPostfix | letOpPostfix)) ^^ {
+      case tp ~ (None ~    Left(named ~ paramsOpt ~ right))=>        LetStmt (named, paramsOpt, right, tp)
+      case tp ~ (Some(_) ~ Left(named ~ paramsOpt ~ right)) =>       MacroStmt(named,paramsOpt.get,right)
+      case tp ~ (None ~    Right(named ~ left ~ right ~ content)) => throw new StoneEvalException("演算子定義は未実装")
+      case tp ~ (Some(_) ~ Right(named ~ left ~ right ~ content)) => MacroStmt(named,left :: right :: Nil,content)
     }
+  def letPostfix = identifier ~ opt(params) ~ ("=" ~> cluster) ^^ (x => Left(x))
+  def letOpPostfix = op ~ identifier ~ identifier ~ ("=" ~> cluster) ^^ (x => Right(x))
   def oneLine     : Parser[Stmt] = (opt(statement) ^^ {
     case None => NullStmt
     case Some(s) => s
@@ -191,10 +206,16 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   //関数関連
   def param = identifier
   def params = rep1(param)
-  def postfix = "(" ~> expr <~ ")" | block | scope | number | identifier | string | underline
+  def postfix = "(" ~> expr <~ ")" | block | scope | number | identifier | string | boolean | underline
 
   def function : Parser[Function] = "fun" ~> params ~ ("->" ~> cluster) ^^ {
     case lst ~ cls => Function(lst.map(b => (b,None)),None,cls)
+  }
+
+  //型
+  def typeSeries : Parser[Type] = rep1sep(typeInfo,"->") ^^ {
+    case hd :: Nil => hd
+    case moreLong => FunctionType(moreLong)
   }
 
 
