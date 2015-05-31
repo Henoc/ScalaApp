@@ -104,7 +104,7 @@ case class NativeStmt(operator : String, params : List[Binder]) extends Stmt
  * statement := ifStatement | whileStatement | letStatement | cluster
  * ifStatement := "if" primary cluster [ "else" cluster ]
  * whileStatement := "while" primary cluster
- * letStatement := typeSeries (";" | "\n") ["macro"] ( letPostfix | letOpPostfix )
+ * letStatement := "::" typeSeries (";" | "\n") ["macro"] ( letPostfix | letOpPostfix )
  * letPostfix := IDENTIFIER [params] "=" cluster
  * letOpPostfix := op IDENTIFIER IDENTIFIER "=" cluster
  * block := "{" stateLst "}"
@@ -119,7 +119,7 @@ case class NativeStmt(operator : String, params : List[Binder]) extends Stmt
  * function := "fun" params "->" cluster
  *
  * 型
- * typeSeries := repsep1( typeInfo , "->" )
+ * typeSeries := rep1sep( TYPEINFO | "(" typeSeries ")" , "->" )
  *
  * IDENTIFIER 除外文字列(予約識別子)
  *     fun,if,else,while,_,macro,true,false
@@ -189,7 +189,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   def scope : Parser[ScopeStmt] = ("[" ~> stmtLst <~ "]") ^^ {case lst => ScopeStmt(lst.flatten)} // Noneの場合は捨ててリストを構成、BlockStmtのフィールドとする
   def block : Parser[BlockStmt] = ("{" ~> stmtLst <~ "}") ^^ {case lst => BlockStmt(lst.flatten)}
   def stmtLst : Parser[List[Option[Stmt]]] = repsep(opt(statement),";" | "\n")
-  def letStatement : Parser[Stmt] = typeSeries ~ ((";" | "\n") ~> opt("macro") ~ (letPostfix | letOpPostfix)) ^^ {
+  def letStatement : Parser[Stmt] = "::" ~> typeSeries ~ ((";" | "\n") ~> opt("macro") ~ (letPostfix | letOpPostfix)) ^^ {
       case tp ~ (None ~    Left(named ~ paramsOpt ~ right))=>        LetStmt (named, paramsOpt, right, tp)
       case tp ~ (Some(_) ~ Left(named ~ paramsOpt ~ right)) =>       MacroStmt(named,paramsOpt.get,right)
       case tp ~ (None ~    Right(named ~ left ~ right ~ content)) => throw new StoneEvalException("演算子定義は未実装")
@@ -213,7 +213,7 @@ object BasicParser extends JavaTokenParsers with RegexParsers {
   }
 
   //型
-  def typeSeries : Parser[Type] = rep1sep(typeInfo,"->") ^^ {
+  def typeSeries : Parser[Type] = rep1sep(typeInfo | ("(" ~> typeSeries <~ ")"),"->") ^^ {
     case hd :: Nil => hd
     case moreLong => FunctionType(moreLong)
   }

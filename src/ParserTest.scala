@@ -26,8 +26,8 @@ object ParserTest {
   def main(args: Array[String]) {
     breakable{
       while(scan.hasNext){
-        val line = scan.nextLine() + '\n'
-        if(line.charAt(0) != ':') str append line
+        val line = scan.nextLine()
+        if(!line.matches(""":.""")) str append (line + '\n')
         else line.charAt(1) match{
           case 'e' => {
             try{
